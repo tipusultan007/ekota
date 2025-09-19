@@ -1,0 +1,59 @@
+@font-face {
+    font-family: 'Kalpurush';
+    src: url('../fonts/Kalpurush.ttf') format('truetype');
+    src: url('../fonts/Kalpurush.woff2') format('woff2');
+    font-weight: normal;
+    font-style: normal;
+    font-display: swap;
+}
+/*body {
+    font-family: 'Roboto', 'Kalpurush', sans-serif;
+}
+h1 { font-size: 2.25rem; } !* ~36px *!
+h2 { font-size: 1.875rem; } !* ~30px *!
+h3 { font-size: 1.5rem; }   !* ~24px *!
+h4 { font-size: 1.25rem; }  !* ~20px *!
+h5 { font-size: 1.1rem; }   !* ~18px *!
+h6 { font-size: 1rem; }    !* ~16px *!
+
+!* --- ডিফল্ট বা ইংরেজি ভাষার জন্য বেস ফন্ট সাইজ --- *!
+:root {
+    font-size: 15px; !* ডিফল্ট বেস সাইজ (px ইউনিটে) *!
+}*/
+
+/* --- বাংলা ভাষার জন্য বেস ফন্ট সাইজ সামান্য বড় করা হলো --- */
+html[lang="bn"] {
+    font-size: 16px; /* বাংলা সাইজ (px ইউনিটে) */
+}
+/*div#areaPieChart span {
+    font-family: 'Kalpurush' !important;
+}*/
+
+.apexcharts-legend-series .apexcharts-legend-text {
+    font-size: 1rem !important;
+}
+
+/*h1, h2, h3, h4, h5, h6 {
+    font-family: 'Roboto', 'Kalpurush', sans-serif;
+    font-weight: 600 !important;
+}*/
+
+/*
+span.link-title {
+    font-size: 1.1rem !important;
+}
+.nav-link{
+    font-size: 1rem !important;
+}
+
+.form-label{
+    font-size: 1rem !important;
+}
+.table thead th{
+    font-size: 1rem !important;
+    font-weight: 600;
+}
+.card-title{
+    font-size: 1rem !important;
+}
+*/
