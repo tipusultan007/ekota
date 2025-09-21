@@ -231,16 +231,8 @@ class LoanAccountController extends Controller
 
 
                 $disbursementDate = Carbon::parse($request->disbursement_date);
-
-                // next_due_date গণনা
-                $nextDueDate = clone $disbursementDate;
-                if ($request->installment_frequency == 'daily') {
-                    $nextDueDate->addDay();
-                } elseif ($request->installment_frequency == 'weekly') {
-                    $nextDueDate->addWeek();
-                } elseif ($request->installment_frequency == 'monthly') {
-                    $nextDueDate->addMonth();
-                }
+                
+                $nextDueDate = \App\Helpers\DateHelper::calculateNextDueDate($disbursementDate, $request->installment_frequency);
 
                 $loanAccount = LoanAccount::create([
                     'member_id' => $member->id,

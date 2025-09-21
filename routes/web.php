@@ -88,6 +88,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
         Route::get('/capital-investments', [CapitalInvestmentController::class, 'index'])->name('capital_investments.index');
         Route::post('/capital-investments', [CapitalInvestmentController::class, 'store'])->name('capital_investments.store');
+        Route::get('/reports/area-wise', [ReportController::class, 'areaWiseReport'])->name('reports.area_wise');
 
     });
 

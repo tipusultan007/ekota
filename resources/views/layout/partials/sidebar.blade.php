@@ -120,6 +120,9 @@
                         <li class="nav-item"><a href="{{ route('admin.reports.financial_summary') }}"
                                                 class="nav-link {{ active_class(['admin/reports/financial-summary']) }}">{{ __('messages.financial_summary') }}</a>
                         </li>
+                         <li class="nav-item">
+                            <a href="{{ route('admin.reports.area_wise') }}" class="nav-link {{ active_class(['admin/reports/area-wise']) }}">{{ __('messages.area_wise_report') }}</a>
+                        </li>
                     </ul>
                 </div>
             </li>

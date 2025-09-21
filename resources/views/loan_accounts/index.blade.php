@@ -40,7 +40,9 @@
     <div class="card">
         <div class="card-header d-flex justify-content-between align-items-center">
             <h5 class="card-title mb-0">{{ __('messages.loan_accounts_list') }}</h5>
-            <a href="{{ route('loan.new') }}" class="btn btn-primary">{{  __('messages.new_loan_application') }}</a>
+            @role('Admin')
+                <a href="{{ route('loan.new') }}" class="btn btn-primary">{{  __('messages.new_loan_application') }}</a>
+            @endrole
         </div>
         <div class="card-body ">
 

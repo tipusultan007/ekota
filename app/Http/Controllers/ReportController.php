@@ -415,4 +415,60 @@ class ReportController extends Controller
 
         return compact('capitalInvestedInRange', 'savingsCollected', 'loanInstallmentsCollected', 'savingsWithdrawn', 'profitGiven', 'interestGained', 'totalExpense');
     }
+
+     public function areaWiseReport(Request $request)
+    {
+        $areas = \App\Models\Area::orderBy('name')->get();
+        $selectedArea = null;
+        $summary = [];
+
+        // যদি কোনো এলাকা এবং তারিখ সিলেক্ট করা হয়
+        if ($request->filled('area_id')) {
+            $selectedArea = \App\Models\Area::findOrFail($request->area_id);
+            $memberIds = $selectedArea->members()->pluck('id');
+            
+            $startDate = $request->filled('start_date') ? Carbon::parse($request->start_date) : null;
+            $endDate = $request->filled('end_date') ? Carbon::parse($request->end_date) : null;
+
+            // --- হিসাব-নিকাশ ---
+            // ১. মোট সঞ্চয় (আদায়)
+            $savingsQuery = SavingsCollection::whereIn('member_id', $memberIds);
+            if ($startDate && $endDate) $savingsQuery->whereBetween('collection_date', [$startDate, $endDate]);
+            $summary['total_savings_collected'] = $savingsQuery->sum('amount');
+            
+            // ২. মোট উত্তোলন
+            $withdrawalQuery = SavingsWithdrawal::whereIn('member_id', $memberIds);
+            if ($startDate && $endDate) $withdrawalQuery->whereBetween('withdrawal_date', [$startDate, $endDate]);
+            $summary['total_withdrawn'] = $withdrawalQuery->sum('total_amount');
+            
+            // ৩. মোট ঋণ বিতরণ
+            $loanDisbursedQuery = LoanAccount::whereIn('member_id', $memberIds);
+            if ($startDate && $endDate) $loanDisbursedQuery->whereBetween('disbursement_date', [$startDate, $endDate]);
+            $summary['total_loan_disbursed'] = $loanDisbursedQuery->sum('loan_amount');
+            
+            // ৪. মোট প্রদেয় (বিতরণ করা ঋণের উপর)
+            $summary['total_payable'] = $loanDisbursedQuery->sum('total_payable');
+
+            // ৫. মোট কিস্তি পরিশোধ
+            $installmentsQuery = LoanInstallment::whereIn('member_id', $memberIds);
+            if ($startDate && $endDate) $installmentsQuery->whereBetween('payment_date', [$startDate, $endDate]);
+            $summary['total_installments_paid'] = $installmentsQuery->sum('paid_amount');
+            
+            // ৬. মোট সুদ পরিশোধ (আনুমানিক)
+            $totalPrincipalPaid = 0;
+            $installmentsForInterest = $installmentsQuery->with('loanAccount')->get();
+            foreach($installmentsForInterest as $inst) {
+                $loan = $inst->loanAccount;
+                if ($loan && $loan->total_payable > 0) {
+                    $totalPrincipalPaid += $inst->paid_amount * ($loan->loan_amount / $loan->total_payable);
+                }
+            }
+            $summary['total_interest_paid'] = $summary['total_installments_paid'] - $totalPrincipalPaid;
+
+            // ৭. মাঠে থাকা ঋণ (Loan on Field) - এটি তারিখ পরিসরের উপর নির্ভর করে না
+            $summary['loan_on_field'] = LoanAccount::whereIn('member_id', $memberIds)->where('status', 'running')->sum(DB::raw('total_payable - total_paid'));
+        }
+
+        return view('admin.reports.area_wise', compact('areas', 'selectedArea', 'summary'));
+    }
 }
