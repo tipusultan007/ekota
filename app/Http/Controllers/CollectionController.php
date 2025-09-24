@@ -10,11 +10,19 @@ use App\Models\SavingsCollection;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use App\Models\Member;
+use App\Services\AccountingService;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
 class CollectionController extends Controller
 {
+    protected AccountingService $accountingService;
+
+    // কন্ট্রোলারে অ্যাকাউন্টিং সার্ভিস ইনজেক্ট করুন
+    public function __construct(AccountingService $accountingService)
+    {
+        $this->accountingService = $accountingService;
+    }
     /**
      * সমন্বিত কালেকশন ফর্মটি দেখানোর জন্য।
      */
@@ -29,7 +37,8 @@ class CollectionController extends Controller
         }
 
         $members = $membersQuery->orderBy('name')->get();
-        $accounts = Account::where('is_active', true)->get();
+        $accounts = Account::active()->payment()->orderBy('name')->get();
+
 
         return view('collections.create', compact('members', 'accounts'));
     }
@@ -130,15 +139,24 @@ class CollectionController extends Controller
                         'notes' => $request->notes,
                     ]);
 
-                    $collection->transactions()->create([
-                        'account_id' => $depositAccount->id,
-                        'type' => 'credit',
-                        'amount' => $savingsAmount,
-                        'description' => 'Savings deposit for ' . $member->name,
-                        'transaction_date' => $request->date,
-                    ]);
+                    // $collection->transactions()->create([
+                    //     'account_id' => $depositAccount->id,
+                    //     'type' => 'credit',
+                    //     'amount' => $savingsAmount,
+                    //     'description' => 'Savings deposit for ' . $member->name,
+                    //     'transaction_date' => $request->date,
+                    // ]);
 
-                    $depositAccount->increment('balance', $savingsAmount);
+                    $this->accountingService->createTransaction(
+                        $request->date, 'Savings deposit from ' . $member->name,
+                        [ // entries array
+                            ['account_id' => $depositAccount->id, 'debit' => $savingsAmount],
+                            ['account_id' => Account::where('code', '2010')->first()->id, 'credit' => $savingsAmount],
+                        ],
+                        $collection
+                    );
+
+                  //  $depositAccount->increment('balance', $savingsAmount);
                     $savingsAccount->increment('current_balance', $savingsAmount);
 
                     $savingsAccount->next_due_date = DateHelper::calculateNextDueDate(
@@ -170,15 +188,33 @@ class CollectionController extends Controller
                         'notes' => $request->notes,
                     ]);
 
-                    $installment->transactions()->create([
-                        'account_id' => $depositAccount->id,
-                        'type' => 'credit',
-                        'amount' => $paidAmount,
-                        'description' => 'Loan installment from ' . $member->name,
-                        'transaction_date' => $request->date,
-                    ]);
+                    // $installment->transactions()->create([
+                    //     'account_id' => $depositAccount->id,
+                    //     'type' => 'credit',
+                    //     'amount' => $paidAmount,
+                    //     'description' => 'Loan installment from ' . $member->name,
+                    //     'transaction_date' => $request->date,
+                    // ]);
 
-                    $depositAccount->increment('balance', $paidAmount);
+                    $principalPart = $paidAmount * ($loanAccount->loan_amount / $loanAccount->total_payable);
+                    $interestPart = $paidAmount - $principalPart;
+
+                    $this->accountingService->createTransaction(
+                        $request->date,
+                        'Loan installment received from ' . $member->name,
+                        [
+                            // Debit Entry:
+                            ['account_id' => $depositAccount->id, 'debit' => $paidAmount],
+
+                            // Credit Entries:
+                            ['account_id' => Account::where('code', '1110')->first()->id, 'credit' => $principalPart],
+                            ['account_id' => Account::where('code', '4010')->first()->id, 'credit' => $interestPart],
+                        ],
+                        $installment
+                    );
+
+
+                    //$depositAccount->increment('balance', $paidAmount);
                     $loanAccount->increment('total_paid', $paidAmount);
 
                     if ($loanAccount->total_paid >= $loanAccount->total_payable) {

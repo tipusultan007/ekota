@@ -5,7 +5,6 @@ namespace Database\Seeders;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Spatie\Permission\Models\Role;
 use App\Models\Area;
 use App\Models\Account;
 use App\Models\User;
@@ -17,10 +16,19 @@ use App\Models\Guarantor;
 use App\Models\SavingsCollection;
 use App\Models\LoanInstallment;
 use App\Models\Expense;
+use App\Models\CapitalInvestment;
+use App\Services\AccountingService; // অ্যাকাউন্টিং সার্ভিস
 use Carbon\Carbon;
+use Spatie\Permission\Models\Role as ModelsRole;
 
 class DemoDataSeeder extends Seeder
 {
+    protected AccountingService $accountingService;
+
+    public function __construct(AccountingService $accountingService)
+    {
+        $this->accountingService = $accountingService;
+    }
     /**
      * Run the database seeds.
      *
@@ -52,163 +60,104 @@ class DemoDataSeeder extends Seeder
         DB::statement('SET FOREIGN_KEY_CHECKS=1;');
 
         // --- ১. ভূমিকা তৈরি ---
-        $adminRole = Role::create(['name' => 'Admin']);
-        $fieldWorkerRole = Role::create(['name' => 'Field Worker']);
+        $adminRole = ModelsRole::create(['name' => 'Admin']);
+        $fieldWorkerRole = ModelsRole::create(['name' => 'Field Worker']);
         $this->command->info('Roles Created.');
 
         // --- ২. এলাকা তৈরি ---
         $areas = Area::factory()->count(5)->sequence(
-            ['name' => 'ধানমন্ডি শাখা', 'code' => 'DHA'],
-            ['name' => 'গুলশান শাখা', 'code' => 'GUL'],
-            ['name' => 'চট্টগ্রাম শাখা', 'code' => 'CTG'],
-            ['name' => 'সিলেট শাখা', 'code' => 'SYL'],
-            ['name' => 'খুলনা শাখা', 'code' => 'KHL']
+            ['name' => 'ধানমন্ডি শাখা'],
+            ['name' => 'গুলশান শাখা'],
+            ['name' => 'উত্তরা শাখা'],
+            ['name' => 'চট্টগ্রাম শাখা'],
+            ['name' => 'সিলেট শাখা']
         )->create();
         $this->command->info('Areas Created.');
 
-        // --- ৩. আর্থিক অ্যাকাউন্ট তৈরি ---
-        $cashAccount = Account::create(['name' => 'Cash in Hand', 'balance' => 1000000]);
-        $bankAccount = Account::create(['name' => 'DBBL Bank Account', 'balance' => 5000000]);
-        $this->command->info('Financial Accounts Created.');
+        // --- ৩. Chart of Accounts সিড করুন ---
+        $this->call(AccountSeeder::class);
+        // অ্যাকাউন্টের আইডিগুলো ভেরিয়েবলে নিয়ে নিন
+        $cashAccount = Account::where('code', '1010')->first();
+        $bankAccount = Account::where('code', '1020')->first();
+        $loansReceivableAccount = Account::where('code', '1110')->first();
+        $savingsPayableAccount = Account::where('code', '2010')->first();
+        $capitalAccount = Account::where('code', '3010')->first();
+        $interestIncomeAccount = Account::where('code', '4010')->first();
+        $feeIncomeAccount = Account::where('code', '4020')->first();
+        $this->command->info('Chart of Accounts Seeded.');
 
         // --- ৪. ব্যবহারকারী (অ্যাডমিন ও মাঠকর্মী) তৈরি ---
-        $adminUser = User::factory()->create([
-            'name' => 'Admin User',
-            'email' => 'admin@samiti.com',
-        ]);
+        $adminUser = User::factory()->create(['name' => 'Admin User', 'email' => 'admin@samiti.com']);
         $adminUser->assignRole($adminRole);
-
-        $fieldWorkers = User::factory()->count(5)->create()->each(function ($user, $index) use ($fieldWorkerRole, $areas) {
-            $user->assignRole($fieldWorkerRole);
-            $user->areas()->attach($areas[$index]->id); // প্রত্যেককে একটি করে এলাকা দিন
-        });
+        $fieldWorkers = User::factory()->count(5)->create()->each(fn($user, $i) => $user->areas()->attach($areas[$i]->id));
         $this->command->info('Admin and Field Workers Created.');
 
-        // --- ৫. সদস্য তৈরি ---
-//        $members = Member::factory()->count(100)->create([
-//            'area_id' => $areas->random()->id
-//        ]);
-/*        $members = [];
-        $areas->each(function ($area) {
-            $members[] = Member::factory()->count(20)->create([
-                'area_id' => $area->id,
-            ]);
-        });*/
-        $members = Member::factory()->count(100)->create([
-            'area_id' => function () use ($areas) {
-                return $areas->random()->id;
-            }
+        // --- ৫. প্রাথমিক মূলধন বিনিয়োগ ---
+        $investment = CapitalInvestment::create([
+            'user_id' => $adminUser->id,
+            'account_id' => $bankAccount->id,
+            'amount' => 10000000, // ১ কোটি
+            'investment_date' => Carbon::today()->subYear(),
         ]);
+        $this->accountingService->createTransaction(
+            $investment->investment_date,
+            'Initial Capital Investment',
+            $investment->amount,
+            $bankAccount->id, // Debit (Asset increases)
+            $capitalAccount->id, // Credit (Equity increases)
+            $investment
+        );
+        $this->command->info('Initial Capital Invested.');
 
+        // --- ৬. সদস্য তৈরি ---
+        $members = Member::factory()->count(100)->create(['area_id' => $areas->random()->id]);
         $this->command->info('Members Created.');
 
-        // --- ৬. খরচের খাত তৈরি ---
-        $salaryCategory = ExpenseCategory::create(['name' => 'Employee Salary']);
-        $rentCategory = ExpenseCategory::create(['name' => 'Office Rent']);
-        $this->command->info('Expense Categories Created.');
+        // --- ৭. সঞ্চয়, ঋণ এবং লেনদেন তৈরি ---
+        $this->command->withProgressBar($members, function ($member) use ($cashAccount, $bankAccount, $loansReceivableAccount, $savingsPayableAccount, $interestIncomeAccount, $feeIncomeAccount, $members, $fieldWorkers) {
 
-        // --- ৭. সঞ্চয় ও ঋণ অ্যাকাউন্ট এবং লেনদেন তৈরি ---
-        $this->command->withProgressBar($members, function ($member) use ($cashAccount,$bankAccount, $members, $fieldWorkers) {
-
-            // ক) প্রতিটি সদস্যের জন্য একটি সঞ্চয় অ্যাকাউন্ট
-            $savingsAccount = SavingsAccount::factory()->create([
-                'member_id' => $member->id,
-                'current_balance' => 0 // শুরুতে ব্যালেন্স ০
-            ]);
-
-            // খ) কিছু প্রাথমিক সঞ্চয় জমা (লেনদেন সহ)
-            for ($i=0; $i < rand(5, 20); $i++) {
+            // ক) প্রতিটি সদস্যের জন্য একটি সঞ্চয় অ্যাকাউন্ট এবং কিছু জমা
+            $savingsAccount = SavingsAccount::factory()->create(['member_id' => $member->id, 'current_balance' => 0]);
+            for ($i = 0; $i < rand(5, 15); $i++) {
                 $amount = rand(200, 1000);
-                $date = Carbon::today()->subDays(rand(1, 365));
-                $collection = SavingsCollection::create([
-                    'savings_account_id' => $savingsAccount->id,
-                    'member_id' => $member->id,
-                    'collector_id' => $fieldWorkers->random()->id,
-                    'amount' => $amount,
-                    'collection_date' => $date,
-                ]);
-                $savingsAccount->increment('current_balance', $amount);
-
-                // অ্যাকাউন্টিং এন্ট্রি
-                $collection->transactions()->create([
-                    'account_id' => $cashAccount->id,
-                    'savings_account_id' => $savingsAccount->id,
-                    'type' => 'credit',
-                    'amount' => $amount,
-                    'transaction_date' => $date,
-                    'description' => 'Savings deposit from ' . $member->name
-                ]);
-                $cashAccount->increment('balance', $amount);
+                $date = Carbon::today()->subDays(rand(1, 300));
+                $collection = $savingsAccount->collections()->create(['member_id' => $member->id, 'collector_id' => $fieldWorkers->random()->id, 'amount' => $amount, 'collection_date' => $date]);
+                $this->accountingService->createTransaction($date, 'Savings deposit from ' . $member->name, $amount, $cashAccount->id, $savingsPayableAccount->id, $collection);
             }
 
-            // গ) ৩০% সদস্যকে একটি করে ঋণ দিন
+            // খ) ৩০% সদস্যকে একটি করে ঋণ দিন
             if (rand(1, 10) <= 3) {
-                $loanAccount = LoanAccount::factory()->create([
-                    'member_id' => $member->id,
-                    'total_paid' => 0 // শুরুতে ০
-                ]);
-                Guarantor::factory()->create([
-                    'loan_account_id' => $loanAccount->id,
-                    'member_id' => $members->where('id', '!=', $member->id)->random()->id
-                ]);
+                $loanAccount = LoanAccount::factory()->create(['member_id' => $member->id, 'processing_fee' => 500, 'total_paid' => 0]);
+                Guarantor::factory()->create(['loan_account_id' => $loanAccount->id, 'member_id' => $members->where('id', '!=', $member->id)->random()->id]);
 
                 // ঋণ বিতরণের লেনদেন
-                $loanAccount->transactions()->create([
-                    'account_id' => $bankAccount->id, // ব্যাংক থেকে ঋণ দিন
-                    'type' => 'debit',
-                    'amount' => $loanAccount->loan_amount,
-                    'transaction_date' => $loanAccount->disbursement_date,
-                    'description' => 'Loan disbursed to ' . $member->name
-                ]);
-                $bankAccount->decrement('balance', $loanAccount->loan_amount);
+                $this->accountingService->createTransaction($loanAccount->disbursement_date, 'Loan disbursed to ' . $member->name, $loanAccount->loan_amount, $loansReceivableAccount->id, $bankAccount->id, $loanAccount);
+
+                // প্রক্রিয়াকরণ ফি আয়
+                $this->accountingService->createTransaction($loanAccount->disbursement_date, 'Processing fee from ' . $member->name, $loanAccount->processing_fee, $bankAccount->id, $feeIncomeAccount->id, $loanAccount);
 
                 // কিছু কিস্তি জমা দিন
-                $paidInstallments = rand(1, $loanAccount->number_of_installments - 5);
-                for ($i=0; $i < $paidInstallments; $i++) {
+                $paidInstallments = rand(1, $loanAccount->number_of_installments / 2);
+                for ($i = 0; $i < $paidInstallments; $i++) {
                     $amount = $loanAccount->installment_amount;
                     $date = Carbon::parse($loanAccount->disbursement_date)->addMonths($i + 1);
+                    $installment = $loanAccount->installments()->create(['member_id' => $member->id, 'collector_id' => $fieldWorkers->random()->id, 'installment_no' => $i + 1, 'paid_amount' => $amount, 'payment_date' => $date]);
 
-                    $installment = LoanInstallment::create([
-                        'loan_account_id' => $loanAccount->id,
-                        'member_id' => $member->id,
-                        'collector_id' => $fieldWorkers->random()->id,
-                        'paid_amount' => $amount,
-                        'payment_date' => $date,
-                        'installment_no' => $i + 1, // কিস্তির নম্বর যোগ করুন
+                    // কিস্তির আসল এবং সুদ আলাদা করুন
+                    $principalPart = $amount * ($loanAccount->loan_amount / $loanAccount->total_payable);
+                    $interestPart = $amount - $principalPart;
 
-                    ]);
-                    $loanAccount->increment('total_paid', $amount);
+                    // আসল পরিশোধের লেনদেন
+                    $this->accountingService->createTransaction($date, 'Loan principal collected', $principalPart, $cashAccount->id, $loansReceivableAccount->id, $installment);
 
-                    // অ্যাকাউন্টিং এন্ট্রি
-                    $installment->transactions()->create([
-                        'account_id' => $cashAccount->id,
-                        'type' => 'credit',
-                        'amount' => $amount,
-                        'transaction_date' => $date,
-                        'description' => 'Loan installment from ' . $member->name
-                    ]);
-                    $cashAccount->increment('balance', $amount);
+                    // সুদ আয়ের লেনদেন
+                    $this->accountingService->createTransaction($date, 'Interest income collected', $interestPart, $cashAccount->id, $interestIncomeAccount->id, $installment);
                 }
             }
         });
         $this->command->info("\nSavings/Loan Accounts and Transactions Created.");
 
-        // --- ৮. কিছু সাধারণ খরচ তৈরি ---
-        Expense::factory()->count(15)->create([
-            'expense_category_id' => $rentCategory->id,
-            'user_id' => $adminUser->id
-        ])->each(function ($expense) use ($cashAccount) {
-            $expense->transactions()->create([
-                'account_id' => $cashAccount->id,
-                'type' => 'debit',
-                'amount' => $expense->amount,
-                'transaction_date' => $expense->expense_date,
-                'description' => 'Expense: ' . $expense->category->name
-            ]);
-            $cashAccount->decrement('balance', $expense->amount);
-        });
-        $this->command->info('General Expenses Created.');
-
-        $this->command->info('Demo data seeding completed successfully!');
+        // --- ৮. ব্যালেন্স সিঙ্ক করুন ---
+        $this->command->call('account:sync-balances');
     }
 }

@@ -7,6 +7,7 @@ use App\Models\Account;
 use App\Models\SavingsCollection;
 use App\Models\Member;
 use App\Models\SavingsAccount;
+use App\Services\AccountingService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -14,6 +15,14 @@ use Illuminate\Support\Facades\DB;
 
 class SavingsCollectionController extends Controller
 {
+    protected AccountingService $accountingService;
+
+    // কন্ট্রোলারে অ্যাকাউন্টিং সার্ভিস ইনজেক্ট করুন
+    public function __construct(AccountingService $accountingService)
+    {
+        $this->accountingService = $accountingService;
+    }
+
     public function index(Request $request)
     {
         $user = Auth::user();
@@ -66,7 +75,7 @@ class SavingsCollectionController extends Controller
 
         $accounts = Account::where('is_active', true)->get();
 
-        return view('savings_collections.create', compact('members', 'recentCollections','accounts'));
+        return view('savings_collections.create', compact('members', 'recentCollections', 'accounts'));
     }
 
     public function store(Request $request)
@@ -101,17 +110,26 @@ class SavingsCollectionController extends Controller
                 // ধাপ ২: অ্যাকাউন্টিং ইন্টিগ্রেশন
                 // ক) transactions টেবিলে একটি ক্রেডিট (জমা) লেনদেন তৈরি করুন
                 // পলিমরফিক রিলেশন ব্যবহার করে
-                $collection->transactions()->create([
-                    'account_id' => $depositAccount->id,
-                    'savings_account_id' => $savingsAccount->id,
-                    'type' => 'credit',
-                    'amount' => $amount,
-                    'description' => 'Savings deposit from ' . $savingsAccount->member->name . ' (A/C: ' . $savingsAccount->account_no . ')',
-                    'transaction_date' => $request->collection_date,
-                ]);
-                // খ) ক্যাশ/ব্যাংক অ্যাকাউন্টে ব্যালেন্স যোগ করুন
-                $depositAccount->increment('balance', $amount);
+                // $collection->transactions()->create([
+                //     'account_id' => $depositAccount->id,
+                //     'savings_account_id' => $savingsAccount->id,
+                //     'type' => 'credit',
+                //     'amount' => $amount,
+                //     'description' => 'Savings deposit from ' . $savingsAccount->member->name . ' (A/C: ' . $savingsAccount->account_no . ')',
+                //     'transaction_date' => $request->collection_date,
+                // ]);
 
+                $this->accountingService->createTransaction(
+                    $request->date,
+                    'Savings deposit from ' . $savingsAccount->member->name,
+                    [ // entries array
+                        ['account_id' => $depositAccount->id, 'debit' => $amount],
+                        ['account_id' => Account::where('code', '2010')->first()->id, 'credit' => $amount],
+                    ],
+                    $collection
+                );
+
+        
                 // ধাপ ৩: সদস্যের সঞ্চয় অ্যাকাউন্টের ব্যালেন্স এবং পরবর্তী কিস্তির তারিখ আপডেট করুন
                 // ক) সদস্যের অ্যাকাউন্টে ব্যালেন্স যোগ করুন
                 $savingsAccount->increment('current_balance', $amount);
@@ -151,14 +169,31 @@ class SavingsCollectionController extends Controller
 
     public function edit(SavingsCollection $savingsCollection)
     {
+        // ধাপ ১: নিরাপত্তা যাচাই
         $this->authorizeAdmin();
 
-        $accounts = Account::where('is_active', true)->get();
-        // কালেকশনের সাথে সম্পর্কিত লেনদেনটি খুঁজুন
-        $transaction = $savingsCollection->transactions()->where('type', 'credit')->first();
+        // ধাপ ২: ফর্মের ড্রপডাউনের জন্য সকল সক্রিয় আর্থিক অ্যাকাউন্ট (ক্যাশ/ব্যাংক) আনুন
+        // scopeActive() এবং scopePayment() ব্যবহার করে কোডটি আরও পরিষ্কার করা যায়
+        $accounts = Account::active()->payment()->orderBy('name')->get();
 
+        // ধাপ ৩: এই কালেকশনের সাথে যুক্ত মূল Transaction রেকর্ডটি খুঁজুন
+        $transaction = $savingsCollection->transactions()->first();
 
-        return view('savings_collections.edit', compact('savingsCollection','accounts','transaction'));
+        // ধাপ ৪: Transaction থেকে ডেবিট হওয়া অ্যাকাউন্টটি (Cash/Bank) খুঁজুন
+        // যাতে ড্রপডাউনে এটি প্রি-সিলেক্টেড থাকে
+        $currentDepositAccount = null;
+        if ($transaction) {
+            $debitEntry = $transaction->journalEntries()->whereNotNull('debit')->first();
+            if ($debitEntry) {
+                $currentDepositAccount = $debitEntry->account;
+            }
+        }
+
+        return view('savings_collections.edit', compact(
+            'savingsCollection',
+            'accounts',
+            'currentDepositAccount'
+        ));
     }
 
     public function update(Request $request, SavingsCollection $savingsCollection)
@@ -174,38 +209,63 @@ class SavingsCollectionController extends Controller
 
         try {
             DB::transaction(function () use ($request, $savingsCollection) {
-                $transaction = $savingsCollection->transactions()->where('type', 'credit')->first();
-                if (!$transaction) {
-                    throw new \Exception('Associated transaction not found for this collection.');
+
+                // --- ধাপ ১: পুরানো লেনদেন খুঁজুন এবং রিভার্স করুন ---
+                $oldTransaction = $savingsCollection->transactions()->first(); // যেহেতু একটিই থাকার কথা
+                if (!$oldTransaction) {
+                    // যদি কোনো কারণে লেনদেন না থাকে, তাহলে শুধু নতুন একটি তৈরি করুন (ফলব্যাক)
+                    // অথবা একটি এরর থ্রো করুন
+                    throw new \Exception('Associated transaction not found for this collection. Cannot update.');
                 }
 
-                $oldAmount = $savingsCollection->amount;
-                $newAmount = $request->amount;
+                // জার্নাল এন্ট্রিগুলো থেকে পুরানো অ্যাকাউন্ট এবং পরিমাণ নিন
+                $oldDebitEntry = $oldTransaction->journalEntries()->whereNotNull('debit')->first();
+                $oldCreditEntry = $oldTransaction->journalEntries()->whereNotNull('credit')->first();
+                $oldDebitAccount = Account::find($oldDebitEntry->account_id);
+                $oldCreditAccount = Account::find($oldCreditEntry->account_id);
+                $oldAmount = $oldDebitEntry->debit;
 
-                $oldDepositAccount = $transaction->account;
-                $newDepositAccount = Account::find($request->account_id);
+                // পুরানো ব্যালেন্স পুনরুদ্ধার করুন
+                $oldDebitAccount->handleCredit($oldAmount); // ডেবিটের উল্টো ক্রেডিট
+                $oldCreditAccount->handleDebit($oldAmount);  // ক্রেডিটের উল্টো ডেবিট
 
-                // --- ধাপ ১: সকল ব্যালেন্স অ্যাডজাস্ট করুন ---
-                // ক) সদস্যের সঞ্চয় অ্যাকাউন্ট ব্যালেন্স অ্যাডজাস্ট
-                $savingsAccount = $savingsCollection->savingsAccount;
-                $savingsAccount->current_balance = ($savingsAccount->current_balance - $oldAmount) + $newAmount;
-                $savingsAccount->save();
+                // সদস্যের সঞ্চয় অ্যাকাউন্ট থেকে পুরানো পরিমাণ বিয়োগ করুন
+                $savingsCollection->savingsAccount->decrement('current_balance', $oldAmount);
 
-                // খ) সমিতির আর্থিক অ্যাকাউন্ট (ক্যাশ/ব্যাংক) ব্যালেন্স অ্যাডজাস্ট
-                $oldDepositAccount->decrement('balance', $oldAmount);
-                $newDepositAccount->increment('balance', $newAmount);
+                // পুরানো Transaction এবং Journal Entry ডিলিট করে দিন
+                $oldTransaction->journalEntries()->delete();
+                $oldTransaction->delete();
 
-                // --- ধাপ ২: রেকর্ডগুলো আপডেট করুন ---
-                // ক) কালেকশন রেকর্ড
-                $savingsCollection->update($request->except('account_id'));
 
-                // খ) লেনদেন রেকর্ড
-                $transaction->update([
-                    'account_id' => $newDepositAccount->id,
-                    'amount' => $newAmount,
-                    'transaction_date' => $request->collection_date,
-                    'description' => 'Savings deposit from ' . $savingsAccount->member->name . ' (A/C: ' . $savingsAccount->account_no . ') (Updated)',
+                // --- ধাপ ২: নতুন তথ্য দিয়ে কালেকশন রেকর্ড আপডেট করুন ---
+                $savingsCollection->update([
+                    'amount' => $request->amount,
+                    'collection_date' => $request->collection_date,
+                    'notes' => $request->notes,
                 ]);
+
+
+                // --- ধাপ ৩: নতুন তথ্য দিয়ে নতুন করে অ্যাকাউন্টিং এন্ট্রি দিন ---
+                $newAmount = $request->amount;
+                $newDepositAccountId = $request->account_id;
+                $savingsPayableAccount = Account::where('code', '2010')->firstOrFail();
+
+                // নতুন AccountingService ব্যবহার করে যৌগিক জাবেদা তৈরি করুন
+                $this->accountingService->createTransaction(
+                    $request->collection_date,
+                    'Savings deposit from ' . $savingsCollection->member->name . ' (Updated)',
+                    [
+                        // Debit Entry:
+                        ['account_id' => $newDepositAccountId, 'debit' => $newAmount],
+
+                        // Credit Entry:
+                        ['account_id' => $savingsPayableAccount->id, 'credit' => $newAmount],
+                    ],
+                    $savingsCollection
+                );
+
+                // সদস্যের সঞ্চয় অ্যাকাউন্টে নতুন পরিমাণ যোগ করুন
+                $savingsCollection->savingsAccount->increment('current_balance', $newAmount);
             });
         } catch (\Exception $e) {
             return back()->with('error', 'An error occurred: ' . $e->getMessage())->withInput();
@@ -220,25 +280,49 @@ class SavingsCollectionController extends Controller
 
         try {
             DB::transaction(function () use ($savingsCollection) {
-                $transaction = $savingsCollection->transactions()->where('type', 'credit')->first();
 
-                if ($transaction) {
-                    // ধাপ ১: ক্যাশ/ব্যাংক অ্যাকাউন্ট থেকে টাকা ফেরত নিন
-                    $transaction->account->decrement('balance', $savingsCollection->amount);
-                    $transaction->delete();
+                // ধাপ ১: সংশ্লিষ্ট Transaction এবং এর Journal Entry-গুলো খুঁজুন
+                $transaction = $savingsCollection->transactions()->first(); // morphMany রিলেশন
+                if (!$transaction) {
+                    // যদি কোনো লেনদেন না থাকে, শুধু কালেকশনটি ডিলিট করুন (যদিও এটি ঘটার কথা নয়)
+                    $savingsCollection->delete();
+                    return;
                 }
 
-                // ধাপ ২: সদস্যের সঞ্চয় অ্যাকাউন্ট থেকে টাকা বিয়োগ করুন
-                $savingsCollection->savingsAccount->decrement('current_balance', $savingsCollection->amount);
+                $debitEntry = $transaction->journalEntries()->whereNotNull('debit')->first();
+                $creditEntry = $transaction->journalEntries()->whereNotNull('credit')->first();
 
-                // ধাপ ৩: কালেকশন রেকর্ডটি ডিলিট করুন
+                if (!$debitEntry || !$creditEntry) {
+                    throw new \Exception('Incomplete journal entries found for this transaction. Cannot safely delete.');
+                }
+
+                // ধাপ ২: সংশ্লিষ্ট অ্যাকাউন্টগুলোর ব্যালেন্স পুনরুদ্ধার করুন
+                $debitAccount = Account::find($debitEntry->account_id);
+                $creditAccount = Account::find($creditEntry->account_id);
+                $amount = $savingsCollection->amount;
+
+                // ক) ডেবিট অ্যাকাউন্টের ব্যালেন্স রিভার্স করুন (ক্রেডিট করে)
+                $debitAccount->handleCredit($amount);
+
+                // খ) ক্রেডিট অ্যাকাউন্টের ব্যালেন্স রিভার্স করুন (ডেবিট করে)
+                $creditAccount->handleDebit($amount);
+
+                // গ) সদস্যের ব্যক্তিগত সঞ্চয় লেজার (current_balance) থেকে টাকা বিয়োগ করুন
+                $savingsCollection->savingsAccount->decrement('current_balance', $amount);
+
+                // ধাপ ৩: অ্যাকাউন্টিং রেকর্ডগুলো ডিলিট করুন
+                // (Transaction ডিলিট হলে এর সাথে যুক্ত JournalEntry-গুলোও ডিলিট হয়ে যাবে, যদি রিলেশন সঠিকভাবে সেট করা থাকে)
+                $transaction->journalEntries()->delete();
+                $transaction->delete();
+
+                // ধাপ ৪: সবশেষে, মূল SavingsCollection রেকর্ডটি ডিলিট করুন
                 $savingsCollection->delete();
             });
         } catch (\Exception $e) {
-            return redirect()->route('savings-collections.index')->with('error', 'An error occurred: ' . $e->getMessage());
+            return redirect()->route('savings-collections.index')->with('error', 'An error occurred while deleting the collection: ' . $e->getMessage());
         }
 
-        return redirect()->route('savings-collections.index')->with('success', 'Collection deleted and balances restored successfully.');
+        return redirect()->route('savings-collections.index')->with('success', 'Collection deleted and all associated balances have been restored.');
     }
 
     private function authorizeAdmin()

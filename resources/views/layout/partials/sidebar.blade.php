@@ -69,8 +69,8 @@
 
             <li class="nav-item {{ active_class(['savings-collections', 'loan-installments', 'savings-withdrawals*']) }}">
                 <a class="nav-link" data-bs-toggle="collapse" href="#history" role="button"
-                   aria-expanded="{{ is_active_route(['savings-collections', 'loan-installments', 'savings-withdrawals*']) }}"
-                   aria-controls="history">
+                    aria-expanded="{{ is_active_route(['savings-collections', 'loan-installments', 'savings-withdrawals*']) }}"
+                    aria-controls="history">
                     <i class="link-icon" data-lucide="archive"></i>
                     <span class="link-title">{{ __('messages.collection_report') }}</span>
                     <i class="link-arrow" data-lucide="chevron-down"></i>
@@ -81,15 +81,15 @@
                     <ul class="nav sub-menu">
                         <li class="nav-item">
                             <a href="{{ route('savings-collections.index') }}"
-                               class="nav-link {{ active_class(['savings-collections']) }}">{{ __('messages.collection_history') }}</a>
+                                class="nav-link {{ active_class(['savings-collections']) }}">{{ __('messages.collection_history') }}</a>
                         </li>
                         <li class="nav-item">
                             <a href="{{ route('loan-installments.index') }}"
-                               class="nav-link {{ active_class(['loan-installments']) }}">{{ __('messages.installment_history') }}</a>
+                                class="nav-link {{ active_class(['loan-installments']) }}">{{ __('messages.installment_history') }}</a>
                         </li>
                         <li class="nav-item">
                             <a href="{{ route('savings_withdrawals.index') }}"
-                               class="nav-link {{ active_class(['savings-withdrawals*']) }}">{{ __('messages.withdrawal_history') }}</a>
+                                class="nav-link {{ active_class(['savings-withdrawals*']) }}">{{ __('messages.withdrawal_history') }}</a>
                         </li>
                     </ul>
                 </div>
@@ -101,7 +101,7 @@
             <li class="nav-item nav-category">{{ __('messages.reports') }}</li>
             <li class="nav-item {{ active_class(['reports/*']) }}">
                 <a class="nav-link" data-bs-toggle="collapse" href="#reports" role="button"
-                   aria-expanded="{{ is_active_route(['reports/*']) }}" aria-controls="reports">
+                    aria-expanded="{{ is_active_route(['reports/*']) }}" aria-controls="reports">
                     <i class="link-icon" data-lucide="bar-chart-2"></i>
                     <span class="link-title">{{ __('messages.reports') }}</span>
                     <i class="link-arrow" data-lucide="chevron-down"></i>
@@ -109,19 +109,22 @@
                 <div class="collapse {{ show_class(['reports/*']) }}" id="reports">
                     <ul class="nav sub-menu">
                         <li class="nav-item"><a href="{{ route('reports.daily_collection.form') }}"
-                                                class="nav-link {{ active_class(['reports/daily-collection']) }}">{{ __('messages.daily_collection_report') }}</a>
+                                class="nav-link {{ active_class(['reports/daily-collection']) }}">{{ __('messages.daily_collection_report') }}</a>
                         </li>
                         <li class="nav-item"><a href="{{ route('reports.daily_transaction_log') }}"
-                                                class="nav-link {{ active_class(['reports/daily-transaction-log']) }}">{{ __('messages.daily_transaction_log') }}</a>
+                                class="nav-link {{ active_class(['reports/daily-transaction-log']) }}">{{ __('messages.daily_transaction_log') }}</a>
                         </li>
                         <li class="nav-item"><a href="{{ route('reports.outstanding_loan') }}"
-                                                class="nav-link {{ active_class(['reports/outstanding-loan']) }}">{{ __('messages.outstanding_loans') }}</a>
+                                class="nav-link {{ active_class(['reports/outstanding-loan']) }}">{{ __('messages.outstanding_loans') }}</a>
                         </li>
                         <li class="nav-item"><a href="{{ route('admin.reports.financial_summary') }}"
-                                                class="nav-link {{ active_class(['admin/reports/financial-summary']) }}">{{ __('messages.financial_summary') }}</a>
+                                class="nav-link {{ active_class(['admin/reports/financial-summary']) }}">{{ __('messages.financial_summary') }}</a>
                         </li>
-                         <li class="nav-item">
+                        <li class="nav-item">
                             <a href="{{ route('admin.reports.area_wise') }}" class="nav-link {{ active_class(['admin/reports/area-wise']) }}">{{ __('messages.area_wise_report') }}</a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="{{ route('admin.reports.journal_ledger') }}" class="nav-link {{ active_class(['admin/reports/journal-ledger']) }}">Journal Ledger</a>
                         </li>
                     </ul>
                 </div>
@@ -152,7 +155,7 @@
             </li>
             <li class="nav-item {{ active_class(['admin/expense*']) }}">
                 <a class="nav-link" data-bs-toggle="collapse" href="#expense" role="button"
-                   aria-expanded="{{ is_active_route(['admin/expense*']) }}" aria-controls="expense">
+                    aria-expanded="{{ is_active_route(['admin/expense*']) }}" aria-controls="expense">
                     <i class="link-icon" data-lucide="credit-card"></i>
                     <span class="link-title">{{ __('messages.expense_management') }}</span>
                     <i class="link-arrow" data-lucide="chevron-down"></i>
@@ -160,10 +163,10 @@
                 <div class="collapse {{ show_class(['admin/expense*']) }}" id="expense">
                     <ul class="nav sub-menu">
                         <li class="nav-item"><a href="{{ route('admin.expense-categories.index') }}"
-                                                class="nav-link {{ active_class(['admin/expense-categories*']) }}">{{ __('messages.expense_categories') }}</a>
+                                class="nav-link {{ active_class(['admin/expense-categories*']) }}">{{ __('messages.expense_categories') }}</a>
                         </li>
                         <li class="nav-item"><a href="{{ route('admin.expenses.index') }}"
-                                                class="nav-link {{ active_class(['admin/expenses*']) }}">{{ __('messages.all_expenses') }}</a>
+                                class="nav-link {{ active_class(['admin/expenses*']) }}">{{ __('messages.all_expenses') }}</a>
                         </li>
                     </ul>
                 </div>

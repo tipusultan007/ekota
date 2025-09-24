@@ -29,6 +29,6 @@ class BalanceTransfer extends Model
 
     public function transactions()
     {
-        return $this->morphMany(Transaction::class, 'transactionable');
+        return $this->morphMany(\App\Models\Transaction::class, 'transactionable');
     }
 }

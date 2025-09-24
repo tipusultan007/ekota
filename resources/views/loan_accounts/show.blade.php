@@ -99,7 +99,13 @@
             <div class="card bg-danger text-white">
                 <div class="card-body text-center">
                     <p class="mb-1 small">{{ __('messages.due_amount') }}</p>
-                    <h5 class="mb-0">{{ number_format($loanAccount->total_payable - $loanAccount->total_paid - $loanAccount->grace_amount, 2) }}</h5>
+                    <h5 class="mb-0">
+                        @if($loanAccount->status == 'paid')
+                            0.00
+                        @else
+                            {{ number_format($loanAccount->total_payable - $loanAccount->total_paid - $loanAccount->grace_amount, 2) }}
+                        @endif
+                    </h5>
                 </div>
             </div>
         </div>

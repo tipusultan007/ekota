@@ -44,8 +44,8 @@ class Expense extends Model implements HasMedia
         return $this->morphTo();
     }
 
-    public function transactions()
-    {
-        return $this->morphMany(Transaction::class, 'transactionable');
-    }
+public function transactions()
+{
+    return $this->morphMany(\App\Models\Transaction::class, 'transactionable');
+}
 }

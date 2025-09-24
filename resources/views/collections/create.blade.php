@@ -33,8 +33,16 @@
                             </div>
                             <div class="col-md-4 mb-3">
                                 <label class="form-label">{{ __('messages.collection_date') }}</label>
-                                <input type="text" name="date" id="date" class="form-control flatpickr"
-                                    value="{{ date('Y-m-d') }}" required>
+                                <!-- <input type="text" name="date" id="date" class="form-control flatpickr"
+                                    value="{{ date('Y-m-d') }}" required> -->
+                                    @role('Admin')
+                                        <input type="text" name="date" class="form-control flatpickr" 
+                                            value="{{ old('date', date('Y-m-d')) }}" required>
+                                    @else
+                                        <input type="text" class="form-control" 
+                                            value="{{ date('d/m/Y') }}" readonly style="background-color: #e9ecef;">
+                                        <input type="hidden" name="date" value="{{ date('Y-m-d') }}">
+                                    @endrole
                             </div>
                         </div>
                         <hr>
@@ -145,7 +153,7 @@
                         <li class="nav-item"><a class="nav-link active" id="today-savings-tab" data-bs-toggle="tab"
                                 href="#today-savings" role="tab">{{ __('messages.savings') }}</a></li>
                         <li class="nav-item"><a class="nav-link" id="today-loans-tab" data-bs-toggle="tab"
-                                href="#today-loans" role="tab">{{ __('loans') }}</a></li>
+                                href="#today-loans" role="tab">{{ __('messages.loans') }}</a></li>
                     </ul>
 
                     {{-- ট্যাব কন্টেন্ট --}}
@@ -157,7 +165,7 @@
                                         <tr>
                                             <th>{{ __('messages.date') }}</th>
                                             <th>{{ __('messages.member') }}</th>
-                                            <th>{{ __('messages.amount') }}</th>
+                                            <th class="text-end">{{ __('messages.amount') }}</th>
                                         </tr>
                                     </thead>
                                     <tbody id="today-savings-table-body">
@@ -173,7 +181,7 @@
                                         <tr>
                                             <th>{{ __('messages.date') }}</th>
                                             <th>{{ __('messages.member') }}</th>
-                                            <th>{{ __('messages.amount') }}</th>
+                                            <th class="text-end">{{ __('messages.amount') }}</th>
                                         </tr>
                                     </thead>
                                     <tbody id="today-loans-table-body">

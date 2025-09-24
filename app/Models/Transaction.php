@@ -22,11 +22,8 @@ class Transaction extends Model
      * @var array<int, string>
      */
     protected $fillable = [
-        'account_id',
-        'type',
-        'amount',
+        'date',
         'description',
-        'transaction_date',
         'transactionable_id',
         'transactionable_type',
         'savings_account_id',
@@ -39,29 +36,29 @@ class Transaction extends Model
      * @var array<string, string>
      */
     protected $casts = [
-        'amount' => 'decimal:2',
-        'transaction_date' => 'date',
+        'date' => 'date',
     ];
 
-    /**
-     * Get the account that the transaction belongs to.
-     * প্রতিটি লেনদেন একটি নির্দিষ্ট আর্থিক অ্যাকাউন্টের (Account) সাথে যুক্ত।
-     */
-    public function account()
-    {
-        return $this->belongsTo(Account::class);
-    }
 
-    /**
-     * Get the parent transactionable model.
-     * এই পলিমরফিক রিলেশনশিপটি লেনদেনের উৎসকে (যেমন: Salary, BalanceTransfer, SavingsCollection) নির্দেশ করে।
-     *
-     * @return \Illuminate\Database\Eloquent\Relations\MorphTo
+      /**
+     * Get the parent transactionable model (e.g., SavingsCollection, LoanInstallment).
+     * এই রিলেশনশিপটি লেনদেনের উৎসকে নির্দেশ করে।
      */
     public function transactionable()
     {
         return $this->morphTo();
     }
+
+    /**
+     * A transaction is composed of multiple journal entries.
+     * প্রতিটি লেনদেনের দুটি বা তার বেশি জার্নাল এন্ট্রি থাকবে।
+     */
+    public function journalEntries()
+    {
+        return $this->hasMany(JournalEntry::class);
+    }
+
+    
     public function loanAccount()
     {
         return $this->belongsTo(LoanAccount::class);

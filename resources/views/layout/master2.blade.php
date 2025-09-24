@@ -1,22 +1,14 @@
 <!DOCTYPE html>
-<!--
-Template Name: NobleUI - Laravel Admin Dashboard Template
-Author: NobleUI
-Website: https://nobleui.com
-Contact: nobleui.team@gmail.com
-Purchase: https://1.envato.market/nobleui_laravel
-License: You must have a valid license to legally use the template for your project.
--->
 <html>
 <head>
   <meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
 	<meta http-equiv="X-UA-Compatible" content="ie=edge">
-  <meta name="description" content="Responsive Laravel Admin Dashboard Template based on Bootstrap 5">
-	<meta name="author" content="NobleUI">
-	<meta name="keywords" content="nobleui, bootstrap, bootstrap 5, bootstrap5, admin, dashboard, template, responsive, css, sass, html, laravel, theme, front-end, ui kit, web">
+<title>@yield('title', 'পদ্মা শ্রমজীবী সমবায় সমিতি লিমিটেড | সমিতি ব্যবস্থাপনা সফটওয়্যার বাংলাদেশ')</title>
+<meta name="description" content="@yield('meta_description', 'পদ্মা শ্রমজীবী সমবায় সমিতি লিমিটেড - আধুনিক সমিতি ব্যবস্থাপনা সফটওয়্যার বাংলাদেশে। Savings, Loan, FDR, Microfinance ও Accounting সিস্টেম এক প্ল্যাটফর্মে। Laravel দিয়ে নির্মিত।')">
+<meta name="author" content="পদ্মা শ্রমজীবী সমবায় সমিতি লিমিটেড">
+<meta name="keywords" content="@yield('meta_keywords', 'পদ্মা শ্রমজীবী সমবায় সমিতি লিমিটেড, সমিতি সফটওয়্যার বাংলাদেশ, Samiti Management Software, microfinance software, cooperative software, loan management, savings management, FDR management, accounting system, laravel software, সমিতি, সমবায়, ক্ষুদ্রঋণ সফটওয়্যার')">
 
-  <title>NobleUI - Laravel Admin Dashboard Template</title>
 
   <!-- color-modes:js -->
   @vite(['resources/js/pages/color-modes.js'])
@@ -27,12 +19,12 @@ License: You must have a valid license to legally use the template for your proj
     })();
   </script>
 
-  <!-- Fonts -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700;900&display=swap" rel="stylesheet">
-  <!-- End fonts -->
-  
+ <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <!-- End fonts -->
+
   <!-- CSRF Token -->
   <meta name="_token" content="{{ csrf_token() }}">
   
@@ -51,6 +43,7 @@ License: You must have a valid license to legally use the template for your proj
 
   <!-- CSS for RTL layout-->
   <!-- @vite(['resources/rtl-css/app-rtl.css', 'resources/rtl-css/custom-rtl.css']) -->
+    <link rel="stylesheet" href="{{ asset('css/custom.css') }}">
 
   @stack('style')
 </head>
@@ -96,5 +89,6 @@ License: You must have a valid license to legally use the template for your proj
     <!-- end common js -->
 
     @stack('custom-scripts')
+    <script src="{{ asset('build/plugins/bootstrap/bootstrap.bundle.min.js') }}"></script>
 </body>
 </html>

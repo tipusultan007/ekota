@@ -27,10 +27,10 @@ class Salary extends Model
         return $this->morphOne(Expense::class, 'expensable');
     }
 
-    public function transaction()
-    {
-        return $this->morphOne(Transaction::class, 'transactionable');
-    }
+public function transactions()
+{
+    return $this->morphMany(\App\Models\Transaction::class, 'transactionable');
+}
 
     public function account()
     {

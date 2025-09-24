@@ -27,7 +27,7 @@
                         <select name="account_id" class="form-select" required>
                             <option value="">{{ __('messages.select_account') }}</option>
                             @foreach ($accounts as $account)
-                                <option value="{{ $account->id }}" {{ (isset($transaction) && $transaction->account_id == $account->id) ? 'selected' : '' }}>
+                                <option value="{{ $account->id }}" {{ (isset($currentDepositAccount) && $currentDepositAccount->id == $account->id) ? 'selected' : '' }}>
                                     {{ $account->name }}
                                 </option>
                             @endforeach

@@ -6,6 +6,7 @@ use App\Models\Account;
 use App\Models\Area;
 use App\Models\CapitalInvestment;
 use App\Models\Expense;
+use App\Models\JournalEntry;
 use App\Models\LoanAccount;
 use App\Models\Member;
 use App\Models\SavingsAccount;
@@ -280,86 +281,83 @@ class ReportController extends Controller
 
     // app/Http-Controllers/Admin/ReportController.php
 
-    public function financialSummary(Request $request)
-    {
-        // --- তারিখের পরিসর নির্ধারণ ---
-        $firstTransactionDate = \App\Models\Transaction::orderBy('transaction_date', 'asc')->first()->transaction_date ?? now();
-        $startDate = $request->filled('start_date') ? Carbon::parse($request->start_date) : Carbon::parse($firstTransactionDate);
-        $endDate = $request->filled('end_date') ? Carbon::parse($request->end_date) : Carbon::today();
+public function financialSummary(Request $request)
+{
+    $firstEntryDate = JournalEntry::oldest('created_at')->first()->created_at ?? now();
+    $startDate = $request->filled('start_date') ? Carbon::parse($request->start_date) : Carbon::parse($firstEntryDate);
+    $endDate = $request->filled('end_date') ? Carbon::parse($request->end_date) : Carbon::today();
 
-        // ====================================================================
-        // A. স্থিতিপত্র (BALANCE SHEET) - আজকের দিন পর্যন্ত মোট হিসাব
-        // ====================================================================
-        $totalCredits = \App\Models\Transaction::where('type', 'credit')->sum('amount');
-        $totalDebits = \App\Models\Transaction::where('type', 'debit')->sum('amount');
-        $calculatedCashAndBank = $totalCredits - $totalDebits;
+    // ====================================================================
+    // A. স্থিতিপত্র (BALANCE SHEET) - আজকের দিন পর্যন্ত মোট হিসাব
+    // ====================================================================
+    
+    // Account::withSum() ব্যবহার করে সকল অ্যাকাউন্টের মোট ডেবিট ও ক্রেডিট আনুন
+    $allAccounts = Account::withSum('journalEntries as total_debits', 'debit')
+                          ->withSum('journalEntries as total_credits', 'credit')
+                          ->get();
+    
+    // ১. সম্পদ (Assets)
+    $assetAccounts = $allAccounts->where('type', 'Asset');
+    $assets = [
+        'cash_and_bank' => $assetAccounts->whereIn('code', ['1010', '1020', '1030'])->sum(fn($acc) => $acc->total_debits - $acc->total_credits),
+        'loans_receivable' => $assetAccounts->where('code', '1110')->sum(fn($acc) => $acc->total_debits - $acc->total_credits),
+    ];
+    $assets['total'] = array_sum($assets);
+    
+    // ২. দায় (Liabilities)
+    $liabilityAccounts = $allAccounts->where('type', 'Liability');
+    $liabilities = [
+        'members_savings' => $liabilityAccounts->where('code', '2010')->sum(fn($acc) => $acc->total_credits - $acc->total_debits),
+    ];
+    $liabilities['total'] = array_sum($liabilities);
 
-        // ১. সম্পদ (Assets)
-        $assets = [
-            'cash_and_bank' => $calculatedCashAndBank,
-            'loan_principal_on_field' => LoanAccount::where('status', 'running')->sum(DB::raw('total_payable - total_paid - ((total_payable - loan_amount) * (1 - (total_paid / total_payable)))')),
-        ];
-        $assets['total'] = $assets['cash_and_bank'] + $assets['loan_principal_on_field'];
+    // ৩. মালিকানা সত্তা (Owner's Equity)
+    $equityAccounts = $allAccounts->where('type', 'Equity');
+    $equity = [
+        'capital_invested' => $equityAccounts->where('code', '3010')->sum(fn($acc) => $acc->total_credits - $acc->total_debits),
+        'retained_earnings' => $equityAccounts->where('code', '3020')->sum(fn($acc) => $acc->total_credits - $acc->total_debits),
+    ];
+    
+    // ====================================================================
+    // B. আয় বিবরণী (INCOME STATEMENT) - নির্বাচিত তারিখের পরিসরের জন্য
+    // ====================================================================
+    
+    // ১. আয় (Income)
+    $incomeAccounts = Account::where('type', 'Income')->pluck('id');
+    $income = [
+        'interest_earned' => JournalEntry::where('account_id', Account::where('code', '4010')->first()->id)
+                                ->whereBetween('created_at', [$startDate, $endDate])->sum('credit'),
+        'processing_fee_income' => JournalEntry::where('account_id', Account::where('code', '4020')->first()->id)
+                                ->whereBetween('created_at', [$startDate, $endDate])->sum('credit'),
+    ];
+    $income['total'] = array_sum($income);
 
-        // ২. দায় (Liabilities)
-        $liabilities = [
-            'members_savings' => SavingsAccount::sum('current_balance'),
-        ];
-        $liabilities['total'] = $liabilities['members_savings'];
+    // ২. ব্যয় (Expenses)
+    $expenseAccounts = Account::where('type', 'Expense')->pluck('id');
+    $expenses = [
+        'salary_expenses' => JournalEntry::where('account_id', Account::where('code', '5010')->first()->id)
+                                ->whereBetween('created_at', [$startDate, $endDate])->sum('debit'),
+        'profit_paid_to_members' => JournalEntry::where('account_id', Account::where('code', '5020')->first()->id)
+                                ->whereBetween('created_at', [$startDate, $endDate])->sum('debit'),
+        'loan_grace_given' => JournalEntry::where('account_id', Account::where('code', '5030')->first()->id)
+                                ->whereBetween('created_at', [$startDate, $endDate])->sum('debit'),
+        'operational_expenses' => JournalEntry::whereIn('account_id', Account::where('type', 'Expense')->whereNotIn('code', ['5010', '5020', '5030'])->pluck('id'))
+                                ->whereBetween('created_at', [$startDate, $endDate])->sum('debit'),
+    ];
+    $expenses['total'] = array_sum($expenses);
 
-        // ৩. মালিকানা সত্তা (Owner's Equity)
-        $equity = [
-            'capital_invested' => CapitalInvestment::sum('amount'),
-            // 'retained_earnings' => ... (এটি আয় বিবরণী থেকে আসবে)
-        ];
+    // ৩. নিট লাভ/ক্ষতি (Net Profit/Loss)
+    $netProfitLoss = $income['total'] - $expenses['total'];
+    
+    // ৪. মালিকানা সত্তার চূড়ান্ত হিসাব
+    $equity['retained_earnings_current_period'] = $netProfitLoss;
+    $equity['total'] = $equity['capital_invested'] + $equity['retained_earnings'];
 
-        // ====================================================================
-        // B. আয় বিবরণী (INCOME STATEMENT) - নির্বাচিত তারিখের পরিসরের জন্য
-        // ====================================================================
-
-        // ১. আয় (Income)
-        $totalInstallments = LoanInstallment::whereBetween('payment_date', [$startDate, $endDate])->sum('paid_amount');
-        $totalPrincipalCollected = LoanInstallment::whereBetween('payment_date', [$startDate, $endDate])
-            ->get()->sum(function ($inst) {
-                $loan = $inst->loanAccount;
-                return ($loan && $loan->total_payable > 0) ? ($inst->paid_amount * ($loan->loan_amount / $loan->total_payable)) : 0;
-            });
-        $income = [
-            'interest_earned' => $totalInstallments - $totalPrincipalCollected,
-            // ভবিষ্যতে অন্যান্য আয় এখানে যোগ হবে
-        ];
-        $income['total'] = $income['interest_earned'];
-
-        // ২. ব্যয় (Expenses)
-        $expenses = [
-            'profit_paid_to_members' => SavingsWithdrawal::whereBetween('withdrawal_date', [$startDate, $endDate])->sum('profit_amount'),
-            'loan_grace_given' => LoanAccount::where('status', 'paid')->whereBetween('updated_at', [$startDate, $endDate])->sum('grace_amount'),
-            'operational_expenses' => Expense::whereHas('category', fn($q) => $q->where('name', '!=', 'Employee Salary'))
-                ->whereBetween('expense_date', [$startDate, $endDate])->sum('amount'),
-            'salary_expenses' => Expense::whereHas('category', fn($q) => $q->where('name', 'Employee Salary'))
-                ->whereBetween('expense_date', [$startDate, $endDate])->sum('amount'),
-        ];
-        $expenses['total'] = array_sum($expenses);
-
-        // ৩. নিট লাভ/ক্ষতি (Net Profit/Loss)
-        $netProfitLoss = $income['total'] - $expenses['total'];
-
-        // মালিকানা সত্তার Retained Earnings (অর্জিত মুনাফা) গণনা
-        // এটি একটি সরলীকৃত হিসাব, পূর্ণাঙ্গ সিস্টেমের জন্য একটি আলাদা টেবিল লাগবে
-        $equity['retained_earnings'] = $netProfitLoss;
-        $equity['total'] = $equity['capital_invested'] + $equity['retained_earnings'];
-
-        return view('admin.reports.financial_summary', compact(
-            'assets',
-            'liabilities',
-            'equity',
-            'income',
-            'expenses',
-            'netProfitLoss',
-            'startDate',
-            'endDate'
-        ));
-    }
+    return view('admin.reports.financial_summary', compact(
+        'assets', 'liabilities', 'equity', 'income', 'expenses', 'netProfitLoss',
+        'startDate', 'endDate'
+    ));
+}
 
 
     /**
@@ -470,5 +468,50 @@ class ReportController extends Controller
         }
 
         return view('admin.reports.area_wise', compact('areas', 'selectedArea', 'summary'));
+    }
+
+     public function journalLedger(Request $request)
+    {
+        // এখন মূল কোয়েরি হবে Transaction মডেলের উপর
+    $query = \App\Models\Transaction::with(['journalEntries.account']);
+
+    // তারিখ অনুযায়ী ফিল্টার
+    if ($request->filled('start_date') && $request->filled('end_date')) {
+        $query->whereBetween('date', [$request->start_date, $request->end_date]);
+    }
+    
+    // হিসাব (Account) অনুযায়ী ফিল্টার
+    if ($request->filled('account_id')) {
+        $query->whereHas('journalEntries', function ($q) use ($request) {
+            $q->where('account_id', $request->account_id);
+        });
+    }
+    
+    // লেনদেনের উৎস (Transaction Type) অনুযায়ী ফিল্টার
+    if ($request->filled('transaction_type')) {
+        $modelClass = "App\\Models\\" . $request->transaction_type;
+        if (class_exists($modelClass)) {
+            $query->where('transactionable_type', $modelClass);
+        }
+    }
+
+    // পেজিনেশনসহ লেনদেনের তালিকা আনুন
+    $transactions = $query->latest('date')->latest('id')->paginate(15);
+
+        // ফিল্টারের জন্য ডেটা
+        $accounts = Account::orderBy('code')->get();
+        // লেনদেনের উৎসগুলোর একটি তালিকা (আপনি এটি ডাইনামিকভাবেও তৈরি করতে পারেন)
+        $transactionTypes = [
+            'SavingsCollection' => 'Savings Collection',
+            'LoanInstallment' => 'Loan Installment',
+            'SavingsWithdrawal' => 'Savings Withdrawal',
+            'LoanAccount' => 'Loan Disbursement',
+            'CapitalInvestment' => 'Capital Investment',
+            'BalanceTransfer' => 'Balance Transfer',
+            'Expense' => 'Expense',
+            'Salary' => 'Salary',
+        ];
+
+        return view('admin.reports.journal_ledger', compact('transactions', 'accounts', 'transactionTypes'));
     }
 }

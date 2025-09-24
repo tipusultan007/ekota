@@ -9,6 +9,7 @@ use App\Models\Salary;
 use App\Models\User;
 use App\Models\Expense;
 use App\Models\ExpenseCategory;
+use App\Services\AccountingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -16,6 +17,16 @@ use Illuminate\Support\Facades\DB;
 
 class SalaryController extends Controller
 {
+    use \App\Http\Controllers\Traits\TransactionReversalTrait;
+
+    protected AccountingService $accountingService;
+
+    // কন্ট্রোলারে অ্যাকাউন্টিং সার্ভিস ইনজেক্ট করুন
+    public function __construct(AccountingService $accountingService)
+    {
+        $this->accountingService = $accountingService;
+    }
+
     /**
      * Display a listing of the resource.
      * বেতনের সকল লেনদেনের তালিকা দেখাবে।
@@ -46,7 +57,8 @@ class SalaryController extends Controller
     public function create()
     {
         $employees = User::where('status', 'active')->orderBy('name')->get();
-        $accounts = Account::where('is_active', true)->get();
+        $accounts = Account::active()->payment()->orderBy('name')->get();
+
         return view('admin.salaries.create', compact('employees','accounts'));
     }
 
@@ -54,7 +66,7 @@ class SalaryController extends Controller
      * Store a newly created resource in storage.
      * নতুন বেতন প্রদান রেকর্ড সেভ করবে।
      */
-    public function store(Request $request)
+     public function store(Request $request)
     {
         $request->validate([
             'user_id' => 'required|exists:users,id',
@@ -65,48 +77,46 @@ class SalaryController extends Controller
         ]);
 
         $employee = User::find($request->user_id);
+        $paymentAccount = Account::findOrFail($request->account_id);
+        $amount = $request->amount;
         $salaryMonth = \Carbon\Carbon::parse($request->salary_month)->format('F, Y');
-
-        $alreadyPaid = Salary::where('user_id', $employee->id)->where('salary_month', $salaryMonth)->exists();
-        if ($alreadyPaid) {
-            return back()->with('error', 'Salary for this month has already been paid to ' . $employee->name);
+        
+        if ($paymentAccount->balance < $amount) {
+            return back()->with('error', 'Insufficient balance in the payment account.');
+        }
+        if (Salary::where('user_id', $employee->id)->where('salary_month', $salaryMonth)->exists()) {
+            return back()->with('error', 'Salary for this month has already been paid.');
         }
 
-        DB::transaction(function () use ($request, $employee, $salaryMonth) {
-            $account = Account::findOrFail($request->account_id);
-            $salary = Salary::create([
-                'user_id' => $employee->id,
-                'account_id' => $request->account_id,
-                'processed_by_user_id' => Auth::id(),
-                'amount' => $request->amount,
-                'salary_month' => $salaryMonth,
-                'payment_date' => $request->payment_date,
-                'notes' => $request->notes,
-            ]);
+        try {
+            DB::transaction(function () use ($request, $employee, $paymentAccount, $amount, $salaryMonth) {
+                
+                $salary = Salary::create([
+                    'user_id' => $employee->id,
+                    'processed_by_user_id' => Auth::id(),
+                    'amount' => $amount,
+                    'salary_month' => $salaryMonth,
+                    'payment_date' => $request->payment_date,
+                    'notes' => $request->notes,
+                ]);
 
-            $salaryExpenseCategory = ExpenseCategory::firstOrCreate(['name' => 'Employee Salary']);
-
-            // Expense রেকর্ড তৈরি করুন যা Salary-এর সাথে যুক্ত
-            $expense = $salary->expense()->create([
-                'expense_category_id' => $salaryExpenseCategory->id,
-                'user_id' => Auth::id(),
-                'amount' => $request->amount,
-                'expense_date' => $request->payment_date,
-                'description' => 'Salary for ' . $salaryMonth,
-            ]);
-
-            // Transaction রেকর্ড তৈরি করুন যা Expense-এর সাথে যুক্ত
-            $paymentAccount = Account::find($request->account_id);
-            $expense->transactions()->create([
-                'account_id' => $paymentAccount->id,
-                'type' => 'debit',
-                'amount' => $request->amount,
-                'description' => 'Salary paid to ' . $employee->name,
-                'transaction_date' => $request->payment_date,
-            ]);
-        });
-
-        return redirect()->route('admin.salaries.index')->with('success', 'Salary paid successfully.');
+                
+                $salaryExpenseAccount = Account::where('code', '5010')->firstOrFail(); 
+                
+                $this->accountingService->createTransaction(
+                    $request->payment_date,
+                    'Salary paid to ' . $employee->name . ' for ' . $salaryMonth,
+                    [
+                        ['account_id' => $salaryExpenseAccount->id, 'debit' => $amount], 
+                        ['account_id' => $paymentAccount->id, 'credit' => $amount],   
+                    ],
+                    $salary
+                );
+            });
+        } catch (\Exception $e) {
+            return redirect()->route('admin.salaries.index')->with('error', 'An error occurred: ' . $e->getMessage());
+        }
+        return redirect()->route('admin.salaries.index')->with('success', 'Salary paid and recorded successfully.');
     }
 
     /**
@@ -116,7 +126,8 @@ class SalaryController extends Controller
     public function edit(Salary $salary)
     {
         $employees = User::where('salary', '>', 0)->where('status', 'active')->orderBy('name')->get();
-        $accounts = Account::where('is_active', true)->get();
+        $accounts = Account::active()->payment()->orderBy('name')->get();
+
         return view('admin.salaries.edit', compact('salary', 'employees','accounts'));
     }
 
@@ -126,9 +137,9 @@ class SalaryController extends Controller
      */
     // app/Http-Controllers/Admin/SalaryController.php
 
-    public function update(Request $request, Salary $salary)
+
+  public function update(Request $request, Salary $salary)
     {
-        // নিরাপত্তা যাচাই
         if (!Auth::user()->hasRole('Admin')) {
             abort(403, 'UNAUTHORIZED ACTION.');
         }
@@ -136,101 +147,68 @@ class SalaryController extends Controller
         $request->validate([
             'amount' => 'required|numeric|min:1',
             'payment_date' => 'required|date',
-            'account_id' => 'required|exists:accounts,id', // কোন অ্যাকাউন্ট থেকে পেমেন্ট হচ্ছে
+            'account_id' => 'required|exists:accounts,id',
             'notes' => 'nullable|string',
         ]);
 
         try {
             DB::transaction(function () use ($request, $salary) {
-
-                // সংশ্লিষ্ট Expense এবং Transaction রেকর্ডগুলো খুঁজুন
-                $expense = $salary->expense;
-                if (!$expense) {
-                    throw new \Exception('Associated expense record not found.');
+                // --- ১. পুরানো অ্যাকাউন্টিং লেনদেন রিভার্স করুন ---
+                $oldTransaction = $salary->transactions()->first();
+                if ($oldTransaction) {
+                    $this->reverseTransaction($oldTransaction);
                 }
-                $transaction = $expense->transactions()->where('type', 'debit')->first();
-                if (!$transaction) {
-                    throw new \Exception('Associated transaction record not found.');
-                }
+                
+                // --- ২. Salary রেকর্ডটি আপডেট করুন ---
+                $salary->update($request->except('account_id'));
 
-                $oldAmount = $salary->amount;
-                $newAmount = $request->amount;
-                $oldPaymentAccount = $transaction->account;
-                $newPaymentAccount = Account::find($request->account_id);
-
-                // --- ধাপ ২: রেকর্ডগুলো আপডেট করুন ---
-                // ক) Salary রেকর্ড
-                $salary->update([
-                    'amount' => $newAmount,
-                    'payment_date' => $request->payment_date,
-                    'notes' => $request->notes,
-                    'processed_by_user_id' => Auth::id(),
-                ]);
-
-                // খ) Expense রেকর্ড
-                $expense->update([
-                    'amount' => $newAmount,
-                    'expense_date' => $request->payment_date,
-                    'description' => 'Salary paid to ' . $salary->user->name . ' for ' . $salary->salary_month . ' (Updated)',
-                ]);
-
-                // গ) Transaction রেকর্ড
-                $transaction->update([
-                    'account_id' => $newPaymentAccount->id,
-                    'amount' => $newAmount,
-                    'transaction_date' => $request->payment_date,
-                ]);
-
+                // --- ৩. নতুন অ্যাকাউন্টিং এন্ট্রি দিন ---
+                $paymentAccount = Account::findOrFail($request->account_id);
+                $salaryExpenseAccount = Account::where('code', '5010')->firstOrFail();
+                
+                $this->accountingService->createTransaction(
+                    $request->payment_date,
+                    'Salary paid to ' . $salary->user->name . ' for ' . $salary->salary_month . ' (Updated)',
+                    [
+                        ['account_id' => $salaryExpenseAccount->id, 'debit' => $request->amount],
+                        ['account_id' => $paymentAccount->id, 'credit' => $request->amount],
+                    ],
+                    $salary
+                );
             });
         } catch (\Exception $e) {
-            return redirect()->back()->with('error', 'Failed to update salary record. Error: ' . $e->getMessage())->withInput();
+            return redirect()->back()->with('error', 'Failed to update salary record: ' . $e->getMessage())->withInput();
         }
-
-        return redirect()->route('admin.salaries.index')->with('success', 'Salary record and associated transactions updated successfully.');
+        return redirect()->route('admin.salaries.index')->with('success', 'Salary record updated successfully.');
     }
-
     /**
      * Remove the specified resource from storage.
      * বেতনের এন্ট্রি ডিলিট করবে।
      */
+
     public function destroy(Salary $salary)
     {
-        // নিরাপত্তা যাচাই: শুধুমাত্র অ্যাডমিন
-        if (!Auth::user()->hasRole('Admin')) {
+         if (!Auth::user()->hasRole('Admin')) {
             abort(403, 'UNAUTHORIZED ACTION.');
         }
 
         try {
             DB::transaction(function () use ($salary) {
-
-                // ধাপ ১: বেতনের সাথে সম্পর্কিত Expense রেকর্ডটি খুঁজুন
-                $expense = $salary->expense;
-
-                if ($expense) {
-                    // ধাপ ২: Expense-এর সাথে সম্পর্কিত Transaction রেকর্ডটি খুঁজুন
-                    $transaction = $expense->transactions()->where('type', 'debit')->first();
-
-                    if ($transaction) {
-                        // ধাপ ৩: আর্থিক অ্যাকাউন্টের (ক্যাশ/ব্যাংক) ব্যালেন্স পুনরুদ্ধার করুন
-                        $paymentAccount = $transaction->account;
-                        $paymentAccount->increment('balance', $salary->amount);
-
-                        // ধাপ ৪: Transaction রেকর্ডটি ডিলিট করুন
-                        $transaction->delete();
-                    }
-
-                    // ধাপ ৫: Expense রেকর্ডটি ডিলিট করুন
-                    $expense->delete();
+                // --- ১. অ্যাকাউন্টিং লেনদেন রিভার্স করুন ---
+                $transaction = $salary->transactions()->first();
+                if ($transaction) {
+                    $this->reverseTransaction($transaction);
                 }
-
-                // ধাপ ৬: সবশেষে, মূল Salary রেকর্ডটি ডিলিট করুন
+                
+                // --- ২. মূল Salary রেকর্ডটি ডিলিট করুন ---
                 $salary->delete();
-
             });
         } catch (\Exception $e) {
-            return redirect()->route('admin.salaries.index')->with('error', 'Failed to delete salary record. Error: ' . $e->getMessage());
+            return redirect()->route('admin.salaries.index')->with('error', 'Failed to delete salary record: ' . $e->getMessage());
         }
-
-        return redirect()->route('admin.salaries.index')->with('success', 'Salary record and associated transactions have been deleted. Balance restored.');
+        return redirect()->route('admin.salaries.index')->with('success', 'Salary record deleted and balance restored.');
     }
+    
+  
+
 }

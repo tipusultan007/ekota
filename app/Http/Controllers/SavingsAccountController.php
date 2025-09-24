@@ -157,7 +157,7 @@ class SavingsAccountController extends Controller
         ->orderBy('collection_date','desc')
         ->paginate(20);
 
-        $accounts = Account::all();
+        $accounts = Account::active()->payment()->get();
 
         return view('savings_accounts.show', compact('savingsAccount', 'collections','accounts'));
     }

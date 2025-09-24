@@ -55,4 +55,9 @@ class SavingsWithdrawal extends Model
     {
         return $this->morphOne(Expense::class, 'expensable');
     }
+
+    public function transactions()
+{
+    return $this->morphMany(Transaction::class, 'transactionable');
+}
 }

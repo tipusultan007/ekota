@@ -90,6 +90,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::post('/capital-investments', [CapitalInvestmentController::class, 'store'])->name('capital_investments.store');
         Route::get('/reports/area-wise', [ReportController::class, 'areaWiseReport'])->name('reports.area_wise');
 
+        Route::get('/reports/journal-ledger', [ReportController::class, 'journalLedger'])->name('reports.journal_ledger');
     });
 
 

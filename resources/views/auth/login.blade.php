@@ -1,81 +1,118 @@
 @extends('layout.master2')
+@push('styles')
+<style>
+    .company-title {
+        font-family: "Hind Siliguri", sans-serif;
+        font-size: 1.8rem;
+        font-weight: 700;
+        color: #2c3e50;
+        letter-spacing: 1px;
+    }
 
+    .company-title span {
+        color: #198754;
+    }
+</style>
 @section('content')
-    <div class="row w-100 mx-0 auth-page">
-        <div class="col-md-8 col-xl-6 mx-auto">
-            <div class="card">
-                <div class="row">
-                    <div class="col-md-4 pe-md-0">
-                        {{-- You can change the background image URL here --}}
-                        <div class="auth-side-wrapper" style="background-image: url({{ asset('build/images/img6.webp') }})">
-                        </div>
-                    </div>
-                    <div class="col-md-8 ps-md-0">
-                        <div class="auth-form-wrapper px-4 py-5">
-                            <a href="{{ url('/') }}" class="sidebar-brand d-block mb-2">S&L<span>Pro</span></a>
-                            <h5 class="text-secondary fw-normal mb-4">Welcome back! Log in to your account.</h5>
+<div class="auth-hero d-flex align-items-center justify-content-center">
+    {{-- Language Switch Dropdown --}}
+    <div class="dropdown text-center mb-4" style="position: absolute; top: 20px; right: 20px;">
+        <a class="btn btn-outline-secondary btn-sm dropdown-toggle d-inline-flex align-items-center"
+            href="#" id="languageDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+            @if(session()->get('locale') == 'bn')
+            <img src="{{ url('build/images/flags/bd.svg') }}" class="w-20px" alt="বাংলা">
+            <span class="ms-2">বাংলা</span>
+            @else
+            <img src="{{ url('build/images/flags/us.svg') }}" class="w-20px" alt="English">
+            <span class="ms-2">English</span>
+            @endif
+        </a>
+        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="languageDropdown">
+            <li>
+                <form action="{{ route('language.switch') }}" method="POST">
+                    @csrf
+                    <input type="hidden" name="lang" value="en">
+                    <button type="submit" class="dropdown-item d-flex align-items-center">
+                        <img src="{{ url('build/images/flags/us.svg') }}" class="w-20px" alt="English">
+                        <span class="ms-2">English</span>
+                    </button>
+                </form>
+            </li>
+            <li>
+                <form action="{{ route('language.switch') }}" method="POST">
+                    @csrf
+                    <input type="hidden" name="lang" value="bn">
+                    <button type="submit" class="dropdown-item d-flex align-items-center">
+                        <img src="{{ url('build/images/flags/bd.svg') }}" class="w-20px" alt="বাংলা">
+                        <span class="ms-2">বাংলা</span>
+                    </button>
+                </form>
+            </li>
+        </ul>
+    </div>
 
-                            {{-- The form now points to the 'login' route and uses the POST method --}}
-                            <form class="forms-sample" method="POST" action="{{ route('login') }}">
-                                @csrf
+    <div class="card shadow-lg border-0" style="max-width: 450px; width: 100%;">
+        <div class="card-body p-4">
 
-                                {{-- Email Address Field --}}
-                                <div class="mb-3">
-                                    <label for="phone" class="form-label">{{ __('Phone Number') }}</label>
-                                    <input type="text" class="form-control @error('phone') is-invalid @enderror"
-                                           id="phone" name="phone" value="{{ old('phone') }}" required autocomplete="phone" autofocus placeholder="Phone">
-
-                                    @error('phone')
-                                    <span class="invalid-feedback" role="alert">
-                                        <strong>{{ $message }}</strong>
-                                    </span>
-                                    @enderror
-                                </div>
-
-                                {{-- Password Field --}}
-                                <div class="mb-3">
-                                    <label for="password" class="form-label">{{ __('Password') }}</label>
-                                    <input type="password" class="form-control @error('password') is-invalid @enderror"
-                                           id="password" name="password" required autocomplete="current-password" placeholder="Password">
-
-                                    @error('password')
-                                    <span class="invalid-feedback" role="alert">
-                                        <strong>{{ $message }}</strong>
-                                    </span>
-                                    @enderror
-                                </div>
-
-                                {{-- Remember Me & Forgot Password --}}
-                                <div class="d-flex justify-content-between align-items-center mb-3">
-                                    <div class="form-check">
-                                        <input type="checkbox" class="form-check-input" name="remember" id="remember" {{ old('remember') ? 'checked' : '' }}>
-                                        <label class="form-check-label" for="remember">
-                                            {{ __('Remember me') }}
-                                        </label>
-                                    </div>
-                                    @if (Route::has('password.request'))
-                                        <a href="{{ route('password.request') }}">
-                                            {{ __('Forgot Your Password?') }}
-                                        </a>
-                                    @endif
-                                </div>
-
-                                {{-- Submit Buttons --}}
-                                <div>
-                                    <button type="submit" class="btn btn-primary me-2 mb-2 mb-md-0">
-                                        {{ __('Login') }}
-                                    </button>
-                                    {{-- The Google Sign-in button can be implemented later with Laravel Socialite --}}
-                                    {{-- <a href="#" class="btn btn-outline-primary btn-icon-text mb-2 mb-md-0">...</a> --}}
-                                </div>
-
-                                {{-- Sign Up Link --}}
-                                <p class="mt-3 text-secondary">Don't have an account? <a href="{{ route('register') }}">Sign up</a></p>
-                            </form>
-                        </div>
-                    </div>
-                </div>
+            {{-- Company Title --}}
+            <div class="text-center py-4 bg-light border-bottom mb-3">
+                <h1 class="company-title mb-0">
+                    পদ্মা শ্রমজীবী <span class="text-primary">সমবায় সমিতি</span> লিমিটেড
+                </h1>
             </div>
+
+
+            {{-- Subtitle --}}
+            <h5 class="text-secondary fw-normal text-center mb-4">
+                {{ __('auth.welcome') }}
+            </h5>
+
+            {{-- Login Form --}}
+            <form class="forms-sample" method="POST" action="{{ route('login') }}">
+                @csrf
+
+                {{-- Phone --}}
+                <div class="mb-3">
+                    <label for="phone" class="form-label">{{ __('auth.phone') }}</label>
+                    <input type="text" class="form-control @error('phone') is-invalid @enderror"
+                        id="phone" name="phone" value="{{ old('phone') }}"
+                        placeholder="{{ __('auth.phone_placeholder') }}" required autofocus>
+                    @error('phone')
+                    <span class="invalid-feedback"><strong>{{ $message }}</strong></span>
+                    @enderror
+                </div>
+
+                {{-- Password --}}
+                <div class="mb-3">
+                    <label for="password" class="form-label">{{ __('auth.password') }}</label>
+                    <input type="password" class="form-control @error('password') is-invalid @enderror"
+                        id="password" name="password"
+                        placeholder="{{ __('auth.password_placeholder') }}" required>
+                    @error('password')
+                    <span class="invalid-feedback"><strong>{{ $message }}</strong></span>
+                    @enderror
+                </div>
+
+                {{-- Remember Me & Forgot Password --}}
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <div class="form-check">
+                        <input type="checkbox" class="form-check-input" name="remember" id="remember">
+                        <label class="form-check-label" for="remember">
+                            {{ __('auth.remember') }}
+                        </label>
+                    </div>
+
+                </div>
+
+                {{-- Submit --}}
+                <div class="d-grid">
+                    <button type="submit" class="btn btn-primary">
+                        {{ __('auth.login') }}
+                    </button>
+                </div>
+            </form>
+
         </div>
     </div>
+</div>
 @endsection

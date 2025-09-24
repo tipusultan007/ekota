@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Traits\TransactionReversalTrait;
 use App\Models\Account;
 use App\Models\Expense;
 use App\Models\ExpenseCategory;
@@ -9,6 +10,7 @@ use App\Models\SavingsCollection;
 use Illuminate\Http\Request;
 use App\Models\SavingsAccount;
 use App\Models\SavingsWithdrawal;
+use App\Services\AccountingService;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -16,6 +18,14 @@ use Illuminate\Validation\Rule;
 
 class SavingsWithdrawalController extends Controller
 {
+    use TransactionReversalTrait; 
+    protected AccountingService $accountingService;
+
+    // কন্ট্রোলারে অ্যাকাউন্টিং সার্ভিস ইনজেক্ট করুন
+    public function __construct(AccountingService $accountingService)
+    {
+        $this->accountingService = $accountingService;
+    }
     /**
      * Display a listing of the resource.
      */
@@ -43,7 +53,7 @@ class SavingsWithdrawalController extends Controller
         return view('savings_withdrawals.index', compact('withdrawals'));
     }
 
-    public function store(Request $request, SavingsAccount $savingsAccount)
+    /* public function store(Request $request, SavingsAccount $savingsAccount)
     {
         $this->authorize('isAdmin');
 
@@ -119,6 +129,68 @@ class SavingsWithdrawalController extends Controller
 
         return redirect()->route('members.show', $savingsAccount->member_id)
             ->with('success', 'Final withdrawal of ' . number_format($totalPaidToMember) . ' BDT processed. Account has been closed.');
+    } */
+public function store(Request $request, SavingsAccount $savingsAccount)
+    {
+        $this->authorize('isAdmin');
+        $request->validate([
+            'profit_amount' => 'nullable|numeric|min:0',
+            'withdrawal_date' => 'required|date',
+            'account_id' => 'required|exists:accounts,id',
+        ]);
+
+        $currentBalance = (float) $savingsAccount->current_balance;
+        $profitAmount = (float) ($request->profit_amount ?? 0);
+        $totalPaidToMember = $currentBalance + $profitAmount;
+        $paymentAccount = Account::findOrFail($request->account_id);
+
+        if ($paymentAccount->balance < $totalPaidToMember) {
+            return back()->with('error', 'Insufficient balance in the payment account.');
+        }
+
+        try {
+            DB::transaction(function () use ($request, $savingsAccount, $paymentAccount, $currentBalance, $profitAmount, $totalPaidToMember) {
+                
+                // ধাপ ১: উত্তোলনের মূল রেকর্ড তৈরি করুন
+                $withdrawalRecord = $savingsAccount->withdrawals()->create([
+                    'member_id' => $savingsAccount->member_id,
+                    'processed_by_user_id' => Auth::id(),
+                    'withdrawal_amount' => $currentBalance,
+                    'profit_amount' => $profitAmount,
+                    'total_amount' => $totalPaidToMember,
+                    'withdrawal_date' => $request->withdrawal_date,
+                    'notes' => $request->notes,
+                ]);
+
+                // ধাপ ২: অ্যাকাউন্টিং সার্ভিস ব্যবহার করে যৌগিক জাবেদা তৈরি করুন
+                $savingsPayableAccount = Account::where('code', '2010')->firstOrFail(); // Members' Savings Payable
+                $profitExpenseAccount = Account::where('code', '5020')->firstOrFail(); // Profit Paid to Members Expense
+
+                $entries = [];
+                // Debit Entry ১: সদস্যের সঞ্চয়ের দায় কমানো হচ্ছে
+                $entries[] = ['account_id' => $savingsPayableAccount->id, 'debit' => $currentBalance];
+                // Debit Entry ২: প্রদত্ত মুনাফা একটি খরচ
+                if ($profitAmount > 0) {
+                    $entries[] = ['account_id' => $profitExpenseAccount->id, 'debit' => $profitAmount];
+                }
+                // Credit Entry: ক্যাশ/ব্যাংক থেকে মোট টাকা চলে যাচ্ছে
+                $entries[] = ['account_id' => $paymentAccount->id, 'credit' => $totalPaidToMember];
+                
+                $this->accountingService->createTransaction(
+                    $request->withdrawal_date,
+                    'Savings withdrawal for ' . $savingsAccount->member->name,
+                    $entries,
+                    $withdrawalRecord
+                );
+
+                // ধাপ ৩: সঞ্চয় অ্যাকাউন্টের ব্যালেন্স শূন্য এবং স্ট্যাটাস 'closed' করুন
+                $savingsAccount->update(['current_balance' => 0, 'status' => 'closed']);
+            });
+        } catch (\Exception $e) {
+            return back()->with('error', 'An error occurred: ' . $e->getMessage())->withInput();
+        }
+        return redirect()->route('members.show', $savingsAccount->member_id)
+                         ->with('success', 'Final withdrawal processed successfully.');
     }
 
     // একটি সহজ অথোরাইজেশন মেথড
@@ -129,42 +201,68 @@ class SavingsWithdrawalController extends Controller
         }
     }
 
-    public function destroy(SavingsWithdrawal $savingsWithdrawal)
+    // public function destroy(SavingsWithdrawal $savingsWithdrawal)
+    // {
+    //     $this->authorize('isAdmin'); // নিরাপত্তা যাচাই
+
+    //     try {
+    //         DB::transaction(function () use ($savingsWithdrawal) {
+    //             $savingsAccount = $savingsWithdrawal->savingsAccount;
+    //             $paymentTransaction = $savingsWithdrawal->transactions()->where('type', 'debit')->first();
+
+    //             // ধাপ ১: পেমেন্ট অ্যাকাউন্টের ব্যালেন্স পুনরুদ্ধার করুন
+    //             if ($paymentTransaction) {
+    //                 $paymentAccount = $paymentTransaction->account;
+    //                 $paymentAccount->increment('balance', $savingsWithdrawal->total_amount);
+    //             }
+
+    //             // ধাপ ২: সঞ্চয় অ্যাকাউন্টের ব্যালেন্স পুনরুদ্ধার করুন
+    //             // (যেহেতু স্ট্যাটাস 'closed' করা হয়েছিল, তাই ব্যালেন্স ছিল 0)
+    //             $savingsAccount->increment('balance', $savingsWithdrawal->withdrawal_amount);
+    //             $savingsAccount->update(['status' => 'active']); // অ্যাকাউন্টটি আবার সক্রিয় করুন
+
+    //             // ধাপ ৩: সংশ্লিষ্ট মুনাফার খরচটি (profit expense) ডিলিট করুন
+    //             // --- পরিবর্তন এখানে ---
+    //             if ($savingsWithdrawal->profitExpense) {
+    //                 $savingsWithdrawal->profitExpense->delete();
+    //             }
+
+    //             // ধাপ ৪: সংশ্লিষ্ট সকল লেনদেন (transactions) ডিলিট করুন
+    //             $savingsWithdrawal->transactions()->delete();
+
+    //             // ধাপ ৫: সবশেষে, উত্তোলনের মূল রেকর্ডটি ডিলিট করুন
+    //             $savingsWithdrawal->delete();
+    //         });
+    //     } catch (\Exception $e) {
+    //         return back()->with('error', 'An error occurred while reversing the withdrawal: ' . $e->getMessage());
+    //     }
+
+    //     return redirect()->back()->with('success', 'Withdrawal reversed successfully. All balances have been restored.');
+    // }
+
+      public function destroy(SavingsWithdrawal $savingsWithdrawal)
     {
-        $this->authorize('isAdmin'); // নিরাপত্তা যাচাই
+        $this->authorize('isAdmin');
 
         try {
             DB::transaction(function () use ($savingsWithdrawal) {
+                
+               
+                $transaction = $savingsWithdrawal->transactions()->first();
+                if ($transaction) {
+                    $this->reverseTransaction($transaction); 
+                }
+               
                 $savingsAccount = $savingsWithdrawal->savingsAccount;
-                $paymentTransaction = $savingsWithdrawal->transactions()->where('type', 'debit')->first();
+                $savingsAccount->increment('current_balance', $savingsWithdrawal->withdrawal_amount);
+                $savingsAccount->update(['status' => 'active']);
 
-                // ধাপ ১: পেমেন্ট অ্যাকাউন্টের ব্যালেন্স পুনরুদ্ধার করুন
-                if ($paymentTransaction) {
-                    $paymentAccount = $paymentTransaction->account;
-                    $paymentAccount->increment('balance', $savingsWithdrawal->total_amount);
-                }
-
-                // ধাপ ২: সঞ্চয় অ্যাকাউন্টের ব্যালেন্স পুনরুদ্ধার করুন
-                // (যেহেতু স্ট্যাটাস 'closed' করা হয়েছিল, তাই ব্যালেন্স ছিল 0)
-                $savingsAccount->increment('balance', $savingsWithdrawal->withdrawal_amount);
-                $savingsAccount->update(['status' => 'active']); // অ্যাকাউন্টটি আবার সক্রিয় করুন
-
-                // ধাপ ৩: সংশ্লিষ্ট মুনাফার খরচটি (profit expense) ডিলিট করুন
-                // --- পরিবর্তন এখানে ---
-                if ($savingsWithdrawal->profitExpense) {
-                    $savingsWithdrawal->profitExpense->delete();
-                }
-
-                // ধাপ ৪: সংশ্লিষ্ট সকল লেনদেন (transactions) ডিলিট করুন
-                $savingsWithdrawal->transactions()->delete();
-
-                // ধাপ ৫: সবশেষে, উত্তোলনের মূল রেকর্ডটি ডিলিট করুন
+            
                 $savingsWithdrawal->delete();
             });
         } catch (\Exception $e) {
-            return back()->with('error', 'An error occurred while reversing the withdrawal: ' . $e->getMessage());
+            return back()->with('error', 'An error occurred: ' . $e->getMessage());
         }
-
-        return redirect()->back()->with('success', 'Withdrawal reversed successfully. All balances have been restored.');
+        return redirect()->back()->with('success', 'Withdrawal reversed successfully.');
     }
 }

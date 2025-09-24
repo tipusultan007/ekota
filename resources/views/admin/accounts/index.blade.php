@@ -32,10 +32,14 @@
                             <td>
                                 <div class="d-flex">
                                     <a href="{{ route('admin.accounts.edit', $account->id) }}" class="btn btn-primary btn-xs me-1">{{ __('messages.edit') }}</a>
+                                     @if(!$account->is_system_account)
                                     <form id="delete-account-{{ $account->id }}" action="{{ route('admin.accounts.destroy', $account->id) }}" method="POST">
                                         @csrf @method('DELETE')
                                         <button type="button" class="btn btn-danger btn-xs" onclick="showDeleteConfirm('delete-account-{{ $account->id }}', '{{ __('messages.are_you_sure') }}', '{{ __('messages.confirm_delete_account') }}')">{{ __('messages.delete') }}</button>
                                     </form>
+                                     @else
+                                            <span class="badge bg-light text-dark">System Account</span>
+                                        @endif
                                 </div>
                             </td>
                         </tr>

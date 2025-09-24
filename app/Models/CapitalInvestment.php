@@ -14,8 +14,8 @@ class CapitalInvestment extends Model
     public function account() { return $this->belongsTo(Account::class); }
 
     // পলিমরফিক রিলেশন (অ্যাকাউন্টিং-এর জন্য)
-    public function transactions()
-    {
-        return $this->morphMany(Transaction::class, 'transactionable');
-    }
+public function transaction()
+{
+    return $this->morphOne(\App\Models\Transaction::class, 'transactionable');
+}
 }

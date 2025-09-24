@@ -8,10 +8,10 @@
     <!-- ============================================ -->
     <!-- ============== SEO & META TAGS ============== -->
     <!-- ============================================ -->
-    <title>একতা | Samiti Management Software</title>
-    <meta name="description" content="Ekota (একতা) - A comprehensive and modern Samiti Management Software built with Laravel.">
-    <meta name="author" content="Your Name/Company Name">
-    <meta name="keywords" content="samiti, cooperative, microfinance, laravel, management software, একতা, সমিতি, সফটওয়্যার">
+<title>@yield('title', 'পদ্মা শ্রমজীবী সমবায় সমিতি লিমিটেড | সমিতি ব্যবস্থাপনা সফটওয়্যার বাংলাদেশ')</title>
+<meta name="description" content="@yield('meta_description', 'পদ্মা শ্রমজীবী সমবায় সমিতি লিমিটেড - আধুনিক সমিতি ব্যবস্থাপনা সফটওয়্যার বাংলাদেশে। Savings, Loan, FDR, Microfinance ও Accounting সিস্টেম এক প্ল্যাটফর্মে। Laravel দিয়ে নির্মিত।')">
+<meta name="author" content="পদ্মা শ্রমজীবী সমবায় সমিতি লিমিটেড">
+<meta name="keywords" content="@yield('meta_keywords', 'পদ্মা শ্রমজীবী সমবায় সমিতি লিমিটেড, সমিতি সফটওয়্যার বাংলাদেশ, Samiti Management Software, microfinance software, cooperative software, loan management, savings management, FDR management, accounting system, laravel software, সমিতি, সমবায়, ক্ষুদ্রঋণ সফটওয়্যার')">
 
   <!-- color-modes:js -->
   @vite(['resources/js/pages/color-modes.js'])
