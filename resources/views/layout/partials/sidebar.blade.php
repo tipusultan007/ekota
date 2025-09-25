@@ -1,7 +1,7 @@
 <nav class="sidebar">
     <div class="sidebar-header">
         <a href="{{ route('dashboard') }}" class="sidebar-brand">
-            সমিতি<span>সফট</span>
+            পদ্মা <span>সমবায়</span>
         </a>
         <div class="sidebar-toggler not-active">
             <span></span>

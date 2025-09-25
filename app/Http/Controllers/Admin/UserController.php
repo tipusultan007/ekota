@@ -131,6 +131,11 @@ class UserController extends Controller
             return redirect()->route('admin.users.index')->with('error', 'You cannot delete yourself.');
         }
 
+        foreach ($user->salaries as $salary)
+        {
+            $salary->transactions()->delete();
+            $salary->delete();
+        }
         $user->delete();
         return redirect()->route('admin.users.index')->with('success', 'User deleted successfully.');
     }

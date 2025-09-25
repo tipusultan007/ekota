@@ -258,7 +258,6 @@ class MemberController extends Controller
 
         try {
             DB::transaction(function () use ($member) {
-                // এই একটি মাত্র লাইনই সকল অবজারভার চেইনকে ট্রিগার করবে
                 $member->delete();
             });
         } catch (\Exception $e) {
@@ -268,7 +267,6 @@ class MemberController extends Controller
         return redirect()->route('members.index')->with('success', 'Member and all associated data have been permanently deleted.');
     }
 
-    // একটি হেল্পার ফাংশন যা অ্যাক্সেস নিয়ন্ত্রণ করবে
     private function authorizeAccess(Member $member)
     {
         $user = Auth::user();
