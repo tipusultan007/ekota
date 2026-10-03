@@ -2,20 +2,20 @@
 @section('content')
     <div class="card">
         <div class="card-body">
-            <h5 class="card-title">All Savings Withdrawals</h5>
-            {{-- এখানে তারিখ ফিল্টারের জন্য একটি ফর্ম যোগ করা যেতে পারে --}}
+            <h5 class="card-title">{{ __('messages.all_savings_withdrawals') }}</h5>
+
             <div class="table-responsive mt-3">
                 <table class="table table-hover">
                     <thead>
                     <tr>
-                        <th>Date</th>
-                        <th>Member</th>
-                        <th>Account No</th>
-                        <th>Principal</th>
-                        <th>Profit</th>
-                        <th>Total Paid</th>
-                        <th>Processed By</th>
-                        @role('Admin')<th>Actions</th>@endrole
+                        <th>{{ __('messages.date') }}</th>
+                        <th>{{ __('messages.member') }}</th>
+                        <th>{{ __('messages.account_no') }}</th>
+                        <th>{{ __('messages.principal') }}</th>
+                        <th>{{ __('messages.profit') }}</th>
+                        <th>{{ __('messages.total_paid') }}</th>
+                        <th>{{ __('messages.processed_by') }}</th>
+                        @role('Admin')<th>{{ __('messages.actions') }}</th>@endrole
                     </tr>
                     </thead>
                     <tbody>
@@ -30,15 +30,26 @@
                             <td>{{ $withdrawal->processedBy->name }}</td>
                             @role('Admin')
                             <td>
-                                <form action="{{ route('admin.savings_withdrawals.destroy', $withdrawal->id) }}" method="POST" class="d-inline" onsubmit="return confirm('Are you sure? This will restore the balance.');">
-                                    @csrf @method('DELETE')
-                                    <button type="submit" class="btn btn-danger btn-xs">Delete</button>
+                                {{-- ======== পরিবর্তন এখানে ======== --}}
+                                {{-- ফর্মকে একটি ইউনিক আইডি দিন --}}
+                                <form id="delete-withdrawal-{{ $withdrawal->id }}"
+                                      action="{{ route('admin.savings_withdrawals.destroy', $withdrawal->id) }}"
+                                      method="POST" class="d-inline">
+                                    @csrf
+                                    @method('DELETE')
+
+                                    {{-- onsubmit সরিয়ে onclick ব্যবহার করুন এবং অনুবাদ করা টেক্সট পাস করুন --}}
+                                    <button type="button" class="btn btn-danger btn-xs"
+                                            onclick="showDeleteConfirm('delete-withdrawal-{{ $withdrawal->id }}')">
+                                        {{ __('messages.delete') }}
+                                    </button>
                                 </form>
+                                {{-- ============================== --}}
                             </td>
                             @endrole
                         </tr>
                     @empty
-                        <tr><td colspan="7" class="text-center">No withdrawals found.</td></tr>
+                        <tr><td colspan="7" class="text-center">{{ __('messages.no_withdrawals_found') }}</td></tr>
                     @endforelse
                     </tbody>
                 </table>

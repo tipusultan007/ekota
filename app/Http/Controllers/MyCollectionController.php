@@ -6,68 +6,55 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use App\Models\SavingsCollection;
 use App\Models\LoanInstallment;
-use Yajra\DataTables\Facades\DataTables;
+use Carbon\Carbon;
 
 class MyCollectionController extends Controller
 {
     /**
-     * Display the collections page shell.
-     * ডেটা এখন AJAX এর মাধ্যমে লোড হবে।
+     * Display the collections page with a monthly attendance-sheet style view.
      */
-    public function index()
+    public function index(Request $request)
     {
-        return view('my_collections.index');
-    }
+        $month = $request->get('month', Carbon::today()->format('Y-m'));
+        $date = Carbon::parse($month . '-01');
+        $startOfMonth = $date->copy()->startOfMonth();
+        $endOfMonth = $date->copy()->endOfMonth();
+        $daysInMonth = $date->daysInMonth;
 
-    /**
-     * Process datatables ajax request for savings collections.
-     * @return \Illuminate\Http\JsonResponse
-     */
-    public function getSavingsData()
-    {
-        $query = SavingsCollection::with('member', 'savingsAccount')
-            ->where('collector_id', Auth::id())
-            ->select('savings_collections.*');
+        $userId = Auth::id();
 
-        return DataTables::of($query)
-            ->addColumn('name', function ($collection) {
-                $data = $collection->member ? $collection->member->name : '';
-                $data .= '<br>'.$collection->savingsAccount->account_no;
-                return $data;
-            })
-            ->editColumn('collection_date', function ($collection) {
-                return \Carbon\Carbon::parse($collection->collection_date)->format('d M, Y');
-            })
-            ->editColumn('amount', function ($collection) {
-                return number_format($collection->amount, 2);
-            })
-            ->rawColumns(['name'])
-            ->make(true);
-    }
+        // --- Savings Collections Matrix ---
+        $savingsRaw = SavingsCollection::with('member', 'savingsAccount')
+            ->where('collector_id', $userId)
+            ->whereBetween('collection_date', [$startOfMonth->toDateString(), $endOfMonth->toDateString()])
+            ->get();
 
-    /**
-     * Process datatables ajax request for loan installments.
-     * @return \Illuminate\Http\JsonResponse
-     */
-    public function getLoanData()
-    {
-        $query = LoanInstallment::with('member', 'loanAccount')
-            ->where('collector_id', Auth::id())
-            ->select('loan_installments.*');
+        $savingsMatrix = $savingsRaw->groupBy('savings_account_id')->map(function ($items) {
+            $first = $items->first();
+            return [
+                'member_name' => $first->member->name,
+                'account_no' => $first->savingsAccount->account_no,
+                'daily_amounts' => $items->groupBy(fn($i) => $i->collection_date->day)->map->sum('amount'),
+                'total' => $items->sum('amount')
+            ];
+        })->sortBy('account_no');
 
-        return DataTables::of($query)
-            ->addColumn('name', function ($installment) {
-                $data = $installment->member ? $installment->member->name : '';
-                $data .= '<br>'.$installment->loanAccount->account_no;
-                return $data;
-            })
-            ->editColumn('payment_date', function ($installment) {
-                return \Carbon\Carbon::parse($installment->payment_date)->format('d M, Y');
-            })
-            ->editColumn('paid_amount', function ($installment) {
-                return number_format($installment->paid_amount, 2);
-            })
-            ->rawColumns(['name'])
-            ->make(true);
+        // --- Loan Installments Matrix ---
+        $loansRaw = LoanInstallment::with('member', 'loanAccount')
+            ->where('collector_id', $userId)
+            ->whereBetween('payment_date', [$startOfMonth->toDateString(), $endOfMonth->toDateString()])
+            ->get();
+
+        $loansMatrix = $loansRaw->groupBy('loan_account_id')->map(function ($items) {
+            $first = $items->first();
+            return [
+                'member_name' => $first->member->name,
+                'account_no' => $first->loanAccount->account_no,
+                'daily_amounts' => $items->groupBy(fn($i) => $i->payment_date->day)->map->sum('paid_amount'),
+                'total' => $items->sum('paid_amount')
+            ];
+        })->sortBy('account_no');
+
+        return view('my_collections.index', compact('savingsMatrix', 'loansMatrix', 'month', 'daysInMonth'));
     }
 }

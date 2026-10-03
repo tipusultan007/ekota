@@ -1,4 +1,5 @@
 @extends('layout.master')
+@section('title', __('messages.new_collection') . ' | ' . config('app.name'))
 
 @push('plugin-styles')
     <link rel="stylesheet" href="{{ asset('build/plugins/select2/select2.min.css') }}">
@@ -175,11 +176,13 @@
                 width: '100%',
             });
 
-            $(".flatpickr").flatpickr({
-                altInput: true,
-                dateFormat: "Y-m-d",
-                altFormat: "d/m/Y"
-            });
+            if (typeof flatpickr !== 'undefined') {
+                $(".flatpickr").flatpickr({
+                    altInput: true,
+                    dateFormat: "Y-m-d",
+                    altFormat: "d/m/Y"
+                });
+            }
 
             savingsAccountSelect.on('change', function() {
                 const accountId = $(this).val();

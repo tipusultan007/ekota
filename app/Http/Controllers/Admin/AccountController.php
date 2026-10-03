@@ -58,7 +58,7 @@ class AccountController extends Controller
 
                 $transaction = $account->openingBalanceTransaction()->create([
                     'date' => now(),
-                    'description' => 'Opening balance for ' . $account->name,
+                    'description' => 'Opening balance for '.$account->name,
                 ]);
 
                 // Asset/Expense-এর জন্য ডেবিট, Liability/Equity/Income-এর জন্য ক্রেডিট
@@ -113,9 +113,9 @@ class AccountController extends Controller
         if ($account->is_system_account) {
             return redirect()->route('admin.accounts.index')->with('error', 'System accounts cannot be edited.');
         }
+
         return view('admin.accounts.edit', compact('account'));
     }
-
 
     /**
      * Update the specified resource in storage.

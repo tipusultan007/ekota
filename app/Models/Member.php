@@ -7,11 +7,23 @@ use Illuminate\Database\Eloquent\Model;
 use Spatie\MediaLibrary\HasMedia;
 use Spatie\MediaLibrary\InteractsWithMedia;
 
+use Spatie\Activitylog\Traits\LogsActivity;
+use Spatie\Activitylog\LogOptions;
+
 class Member extends Model implements HasMedia
 {
-    use HasFactory, InteractsWithMedia;
+    use HasFactory, InteractsWithMedia, LogsActivity;
+
+    public function getActivitylogOptions(): LogOptions
+    {
+        return LogOptions::defaults()
+            ->logFillable()
+            ->logOnlyDirty()
+            ->dontSubmitEmptyLogs();
+    }
 
     protected $fillable = [
+        'account_no',
         'area_id',
         'name',
         'father_name',
@@ -32,6 +44,11 @@ class Member extends Model implements HasMedia
         'work_place',
         'religion',
         'nationality',
+        'nominee_name',
+        'nominee_relation',
+        'nominee_nid',
+        'nominee_phone',
+        'nominee_address',
     ];
 
     protected $casts = [
@@ -69,5 +86,23 @@ class Member extends Model implements HasMedia
     public function withdrawals()
     {
         return $this->hasMany(SavingsWithdrawal::class);
+    }
+
+    public function collections()
+    {
+        return $this->hasMany(Collection::class);
+    }
+
+    public static function generateNextMemberAccountNumber()
+    {
+        $lastMember = self::orderByRaw('CAST(account_no AS UNSIGNED) DESC')
+            ->first();
+
+        $newNumber = 101; // Starting from 101 or any base you prefer
+        if ($lastMember && is_numeric($lastMember->account_no)) {
+            $newNumber = (int) $lastMember->account_no + 1;
+        }
+
+        return (string) $newNumber;
     }
 }

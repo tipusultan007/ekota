@@ -1,4 +1,5 @@
 @extends('layout.master')
+@section('title', __('messages.daily_collection_report') . ' | ' . config('app.name'))
 
 @section('content')
     <nav class="page-breadcrumb">

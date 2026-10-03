@@ -5,11 +5,10 @@ namespace App\Http\Controllers;
 use App\Helpers\DateHelper;
 use App\Http\Controllers\Traits\TransactionReversalTrait;
 use App\Models\Account;
-use App\Models\LoanInstallment;
 use App\Models\LoanAccount;
+use App\Models\LoanInstallment;
 use App\Models\Member;
 use App\Services\AccountingService;
-use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -17,6 +16,7 @@ use Illuminate\Support\Facades\DB;
 class LoanInstallmentController extends Controller
 {
     use TransactionReversalTrait;
+
     protected AccountingService $accountingService;
 
     // কন্ট্রোলারে অ্যাকাউন্টিং সার্ভিস ইনজেক্ট করুন
@@ -25,18 +25,48 @@ class LoanInstallmentController extends Controller
         $this->accountingService = $accountingService;
     }
 
-    public function index()
+    public function index(Request $request)
     {
         $user = Auth::user();
-        $query = LoanInstallment::with('member', 'loanAccount', 'collector');
+        $query = LoanInstallment::with('member.area', 'loanAccount', 'collector');
 
+        // --- Role-based Base Filter ---
         if ($user->hasRole('Field Worker')) {
             $query->where('collector_id', $user->id);
         }
 
-        $installments = $query->latest()->paginate(20);
+        // --- Apply Dynamic Filters ---
+        if ($request->filled('start_date') && $request->filled('end_date')) {
+            $query->whereBetween('payment_date', [$request->start_date, $request->end_date]);
+        }
 
-        return view('loan_installments.index', compact('installments'));
+        if ($request->filled('member_id')) {
+            $query->where('member_id', $request->member_id);
+        }
+
+        if ($request->filled('collector_id') && $user->hasRole('Admin')) {
+            $query->where('collector_id', $request->collector_id);
+        }
+
+        if ($request->filled('area_id')) {
+            $query->whereHas('member', function ($q) use ($request) {
+                $q->where('area_id', $request->area_id);
+            });
+        }
+
+        $installments = $query->latest('id')->paginate(25);
+
+        // --- Data for Filter Dropdowns ---
+        $members = \App\Models\Member::orderBy('name')->get(['id', 'name', 'account_no']);
+        $areas = \App\Models\Area::orderBy('name')->get(['id', 'name']);
+
+        $collectors = collect();
+        if ($user->hasRole('Admin')) {
+            $collectors = \App\Models\User::whereHas('roles', fn ($q) => $q->whereIn('name', ['Admin', 'Field Worker']))
+                ->orderBy('name')->get(['id', 'name']);
+        }
+
+        return view('loan_installments.index', compact('installments', 'members', 'areas', 'collectors'));
     }
 
     public function create()
@@ -159,11 +189,12 @@ class LoanInstallmentController extends Controller
             'payment_date' => 'required|date',
             'account_id' => 'required_if:paid_amount,>,0|exists:accounts,id',
             'notes' => 'nullable|string',
+            'collector_id' => 'nullable|exists:users,id',
         ]);
 
         $loanAccount = LoanAccount::findOrFail($request->loan_account_id);
-        $paidAmount = (float)($request->paid_amount ?? 0);
-        $graceAmount = (float)($request->grace_amount ?? 0);
+        $paidAmount = (float) ($request->paid_amount ?? 0);
+        $graceAmount = (float) ($request->grace_amount ?? 0);
         $totalReduction = $paidAmount + $graceAmount;
         $dueAmount = $loanAccount->total_payable - $loanAccount->total_paid - $loanAccount->grace_amount;
 
@@ -173,15 +204,17 @@ class LoanInstallmentController extends Controller
         }
         $this->authorizeAccess($loanAccount->member);
 
+        $collectorId = Auth::user()->hasRole('Admin') ? ($request->collector_id ?? Auth::id()) : Auth::id();
+
         try {
-            DB::transaction(function () use ($request, $loanAccount, $paidAmount, $graceAmount, $dueAmount) {
+            DB::transaction(function () use ($request, $loanAccount, $paidAmount, $graceAmount, $dueAmount, $collectorId) {
 
                 $installment = null;
                 // --- ধাপ ২: কিস্তির রেকর্ড তৈরি করুন (যদি কোনো পেমেন্ট বা ছাড় থাকে) ---
                 if ($paidAmount > 0 || $graceAmount > 0) {
                     $installment = $loanAccount->installments()->create([
                         'member_id' => $loanAccount->member_id,
-                        'collector_id' => Auth::id(),
+                        'collector_id' => $collectorId,
                         'installment_no' => ($loanAccount->installments()->count() + 1),
                         'paid_amount' => $paidAmount,
                         'grace_amount' => $graceAmount,
@@ -219,10 +252,10 @@ class LoanInstallmentController extends Controller
                     $entries[] = ['account_id' => Account::where('code', '4010')->first()->id, 'credit' => $interestToClear];
                 }
 
-                if (!empty($entries)) {
+                if (! empty($entries)) {
                     $this->accountingService->createTransaction(
                         $request->payment_date,
-                        'Loan installment from ' . $loanAccount->member->name,
+                        'Loan installment from '.$loanAccount->member->name,
                         $entries,
                         $installment ?? $loanAccount // যদি কোনো পেমেন্ট না থাকে, তাহলে LoanAccount-এর সাথে যুক্ত করুন
                     );
@@ -246,10 +279,12 @@ class LoanInstallmentController extends Controller
                 $loanAccount->save();
             });
         } catch (\Exception $e) {
-            return redirect()->back()->with('error', 'An error occurred: ' . $e->getMessage())->withInput();
+            return redirect()->back()->with('error', 'An error occurred: '.$e->getMessage())->withInput();
         }
+
         return redirect()->back()->with('success', 'Installment collected successfully.');
     }
+
     private function authorizeAccess(Member $member)
     {
         $user = Auth::user();
@@ -266,7 +301,7 @@ class LoanInstallmentController extends Controller
 
             // ধাপ ২: সদস্যের এলাকাটি কি মাঠকর্মীর নির্ধারিত এলাকাগুলোর মধ্যে আছে?
             // in_array() ফাংশনটি একটি মান একটি অ্যারের মধ্যে আছে কিনা তা যাচাই করে
-            if (!in_array($member->area_id, $allowedAreaIds)) {
+            if (! in_array($member->area_id, $allowedAreaIds)) {
                 // যদি না থাকে, তাহলে একটি 403 Forbidden এরর দেখান
                 abort(403, 'UNAUTHORIZED ACTION. You do not have permission to access members from this area.');
             }
@@ -279,8 +314,23 @@ class LoanInstallmentController extends Controller
     public function edit(LoanInstallment $loanInstallment)
     {
         $this->authorizeAdmin();
-        $accounts = Account::where('is_active', true)->get();
-        return view('loan_installments.edit', compact('loanInstallment', 'accounts'));
+        $accounts = Account::active()->payment()->orderBy('name')->get();
+
+        // Find the current deposit account from the transaction
+        $currentDepositAccount = null;
+        $transaction = $loanInstallment->transactions()->first();
+        if ($transaction) {
+            $debitEntry = $transaction->journalEntries()->whereNotNull('debit')->first();
+            if ($debitEntry) {
+                $currentDepositAccount = $debitEntry->account;
+            }
+        }
+
+        // ধাপ ৫: কালেক্টরদের তালিকা আনুন (কালেক্টর পরিবর্তন করার সুবিধার জন্য)
+        $collectors = \App\Models\User::whereHas('roles', fn ($q) => $q->whereIn('name', ['Admin', 'Field Worker']))
+            ->orderBy('name')->get(['id', 'name']);
+
+        return view('loan_installments.edit', compact('loanInstallment', 'accounts', 'currentDepositAccount', 'collectors'));
     }
 
     /**
@@ -295,14 +345,15 @@ class LoanInstallmentController extends Controller
         // এই কিস্তিটি এডিট করার আগে অ্যাকাউন্টের মোট বকেয়া কত ছিল
         $dueAmountBeforeThisEdit = $loanAccount->total_payable - ($loanAccount->total_paid - $loanInstallment->paid_amount);
 
-        $newPaidAmount = (float)($request->paid_amount ?? 0);
-        $newGraceAmount = (float)($request->grace_amount ?? 0);
+        $newPaidAmount = (float) ($request->paid_amount ?? 0);
+        $newGraceAmount = (float) ($request->grace_amount ?? 0);
 
         $request->validate([
             'paid_amount' => 'required|numeric|min:0',
             'grace_amount' => 'nullable|numeric|min:0',
             'payment_date' => 'required|date',
             'account_id' => 'required_if:paid_amount,>,0|exists:accounts,id',
+            'collector_id' => 'required|exists:users,id',
             'notes' => 'nullable|string',
         ]);
 
@@ -329,6 +380,7 @@ class LoanInstallmentController extends Controller
                     'paid_amount' => $newPaidAmount,
                     'grace_amount' => $newGraceAmount,
                     'payment_date' => $request->payment_date,
+                    'collector_id' => $request->collector_id,
                     'notes' => $request->notes,
                 ]);
 
@@ -351,10 +403,10 @@ class LoanInstallmentController extends Controller
                         $entries[] = ['account_id' => Account::where('code', '4010')->firstOrFail()->id, 'credit' => $interestPart];
                     }
 
-                    if (!empty($entries)) {
+                    if (! empty($entries)) {
                         $this->accountingService->createTransaction(
                             $request->payment_date,
-                            'Loan installment from ' . $loanAccount->member->name . ' (Updated)',
+                            'Loan installment from '.$loanAccount->member->name.' (Updated)',
                             $entries,
                             $loanInstallment // সঠিক ভেরিয়েবল
                         );
@@ -368,10 +420,12 @@ class LoanInstallmentController extends Controller
                 $loanAccount->save();
             });
         } catch (\Exception $e) {
-            return redirect()->back()->with('error', 'An error occurred during update: ' . $e->getMessage())->withInput();
+            return redirect()->back()->with('error', 'An error occurred during update: '.$e->getMessage())->withInput();
         }
-        return redirect()->route('loan-installments.index')->with('success', 'Installment updated successfully.');
+
+        return redirect()->back()->with('success', 'Installment updated successfully.');
     }
+
     /**
      * Helper function to reverse a transaction. (কন্ট্রোলারের ভেতরে যোগ করুন)
      */
@@ -389,7 +443,6 @@ class LoanInstallmentController extends Controller
      * Remove the specified resource from storage.
      * একটি ঋণের কিস্তির রেকর্ড ডিলিট করে এবং মূল অ্যাকাউন্টের ব্যালেন্স অ্যাডজাস্ট করে।
      *
-     * @param  \App\Models\LoanInstallment  $loanInstallment
      * @return \Illuminate\Http\RedirectResponse
      */
     public function destroy(LoanInstallment $loanInstallment)
@@ -411,7 +464,8 @@ class LoanInstallmentController extends Controller
             // --- ৩. কিস্তির মূল রেকর্ড ডিলিট করুন ---
             $loanInstallment->delete();
         });
-        return redirect()->route('loan-installments.index')->with('success', 'Installment deleted and balances restored.');
+
+        return redirect()->back()->with('success', 'Installment deleted and balances restored.');
     }
 
     /**
@@ -421,7 +475,7 @@ class LoanInstallmentController extends Controller
      */
     private function authorizeAdmin()
     {
-        if (!Auth::user()->hasRole('Admin')) {
+        if (! Auth::user()->hasRole('Admin')) {
             abort(403, 'UNAUTHORIZED ACTION. ONLY ADMINS CAN PERFORM THIS TASK.');
         }
     }

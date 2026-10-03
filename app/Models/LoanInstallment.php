@@ -4,10 +4,20 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
 
 class LoanInstallment extends Model
 {
-    use HasFactory;
+    use HasFactory, LogsActivity;
+
+    public function getActivitylogOptions(): LogOptions
+    {
+        return LogOptions::defaults()
+            ->logFillable()
+            ->logOnlyDirty()
+            ->dontSubmitEmptyLogs();
+    }
 
     protected $fillable = [
         'loan_account_id',
@@ -50,7 +60,7 @@ class LoanInstallment extends Model
     }
 
     public function transactions()
-{
-    return $this->morphMany(Transaction::class, 'transactionable');
-}
+    {
+        return $this->morphMany(Transaction::class, 'transactionable');
+    }
 }

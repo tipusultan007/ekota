@@ -5,7 +5,7 @@
             <tr><th>Time</th><th>Member</th><th>Account No</th><th class="text-end">Amount</th><th>User</th></tr>
         @elseif($type === 'withdrawal')
             <tr><th>Time</th><th>Member</th><th>Account No</th><th class="text-end">Amount Paid</th><th>User</th></tr>
-        @elseif($type === 'expense')
+        @elseif($type === 'expense' || $type === 'income')
             <tr><th>Time</th><th>Category</th><th>Description</th><th class="text-end">Amount</th><th>User</th></tr>
         @endif
         </thead>
@@ -30,7 +30,7 @@
                     <td>{{ $item->savingsAccount->account_no }}</td>
                     <td class="text-end">{{ number_format($item->total_amount, 2) }}</td>
                     <td>{{ $item->processedBy->name }}</td>
-                @elseif($type === 'expense')
+                @elseif($type === 'expense' || $type === 'income')
                     <td>{{ $item->created_at->format('h:i A') }}</td>
                     <td>{{ $item->category->name }}</td>
                     <td>{{ Str::limit($item->description, 30) }}</td>
@@ -45,7 +45,7 @@
         @if($items->count() > 0)
             <tfoot class="table-light fw-bold">
             <tr>
-                <td colspan="{{ ($type === 'expense') ? 3 : 3 }}" class="text-end">Total:</td>
+                <td colspan="{{ ($type === 'expense' || $type === 'income') ? 3 : 3 }}" class="text-end">Total:</td>
                 <td class="text-end">
                     @if($type === 'savings')
                         {{ number_format($items->sum('amount'), 2) }}
@@ -53,7 +53,7 @@
                         {{ number_format($items->sum('paid_amount'), 2) }}
                     @elseif($type === 'withdrawal')
                         {{ number_format($items->sum('total_amount'), 2) }}
-                    @elseif($type === 'expense')
+                    @elseif($type === 'expense' || $type === 'income')
                         {{ number_format($items->sum('amount'), 2) }}
                     @endif
                 </td>

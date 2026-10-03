@@ -4,16 +4,28 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
 
 class SavingsCollection extends Model
 {
-    use HasFactory;
+    use HasFactory, LogsActivity;
+
+    public function getActivitylogOptions(): LogOptions
+    {
+        return LogOptions::defaults()
+            ->logFillable()
+            ->logOnlyDirty()
+            ->dontSubmitEmptyLogs();
+    }
 
     protected $fillable = [
         'savings_account_id',
         'member_id',
         'collector_id',
         'amount',
+        'withdraw_amount',
+        'interest_amount',
         'collection_date',
         'receipt_no',
         'notes',
@@ -48,7 +60,7 @@ class SavingsCollection extends Model
     }
 
     public function transactions()
-{
-    return $this->morphMany(Transaction::class, 'transactionable');
-}
+    {
+        return $this->morphMany(Transaction::class, 'transactionable');
+    }
 }

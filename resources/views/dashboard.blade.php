@@ -1,4 +1,5 @@
 @extends('layout.master')
+@section('title', __('messages.dashboard') . ' | ' . config('app.name'))
 
 @push('plugin-styles')
   <link href="{{ asset('build/plugins/flatpickr/flatpickr.min.css') }}" rel="stylesheet" />

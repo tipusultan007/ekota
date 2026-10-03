@@ -40,6 +40,17 @@ class AuthenticatedSessionController extends Controller
             ]);
         }
 
+        $user = Auth::user();
+        if ($user->status !== 'active') {
+            Auth::logout();
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+            
+            throw ValidationException::withMessages([
+                'phone' => trans('auth.inactive'),
+            ]);
+        }
+
 
         $request->session()->regenerate();
 

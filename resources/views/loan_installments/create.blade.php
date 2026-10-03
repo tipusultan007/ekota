@@ -47,7 +47,12 @@
                         </div>
                         <div class="col-md-4 mb-3">
                             <label class="form-label">{{ __('messages.payment_date') }}</label>
+                            @role('Admin')
                             <input type="text" name="payment_date" class="form-control flatpickr" value="{{ date('Y-m-d') }}" required>
+                            @endrole
+                            @role('Field Worker')
+                            <input type="text" name="payment_date" class="form-control flatpickr" value="{{ date('Y-m-d') }}" required readonly>
+                            @endrole
                         </div>
                     </div>
                     <div class="row">
@@ -56,11 +61,11 @@
                             <input type="number" step="0.01" name="paid_amount" id="paid_amount_input" class="form-control" required>
                         </div>
                         <div class="col-md-4 mb-3" id="grace_amount_wrapper">
-                            <label class="form-label">Grace Amount</label>
+                            <label class="form-label">{{ __('messages.grace_amount') }}</label>
                             <input type="number" step="0.01" name="grace_amount" id="grace_amount_input" class="form-control" placeholder="0.00">
                         </div>
                         <div class="col-md-3 mb-3">
-                            <label class="form-label">Deposit To <span class="text-danger">*</span></label>
+                            <label class="form-label">{{ __('messages.deposit_to') }}<span class="text-danger">*</span></label>
                             <select name="account_id" class="form-select" required>
                                 @foreach ($accounts as $account) <option value="{{ $account->id }}">{{ $account->name }}</option> @endforeach
                             </select>
@@ -102,7 +107,7 @@
                 </div>
 
                 <div class="table-responsive">
-                    <table class="table table-hover">
+                    <table class="table table-hover table-bordered">
                         <thead>
                             <tr>
                                 <th>{{ __('messages.receipt_no') }}</th>
@@ -127,7 +132,7 @@
                             </tr>
                             @empty
                             <tr>
-                                <td colspan="6" class="text-center">{{ __('messages.no_recent_installments_found') }}</td>
+                                <td colspan="7" class="text-center">{{ __('messages.no_recent_installments_found') }}</td>
                             </tr>
                             @endforelse
                         </tbody>
@@ -186,11 +191,23 @@
                 width: '100%',
             });
 
+            @role('Admin')
             $(".flatpickr").flatpickr({
                 altInput: true,
                 dateFormat: "Y-m-d",
                 altFormat: "d/m/Y"
             });
+            @endrole
+        @role('Field Worker')
+            $(".flatpickr").flatpickr({
+                altInput: true,
+                dateFormat: "Y-m-d",
+                altFormat: "d/m/Y",
+                defaultDate: new Date(), // set to today
+                clickOpens: false,       // prevent calendar from opening
+                allowInput: false,       // prevent manual typing
+            });
+            @endrole
 
             loanAccountSelect.on('change', function() {
                 const accountId = $(this).val();
@@ -209,7 +226,7 @@
                     success: function(response) {
                         const member = response.member;
                         const due = parseFloat(response.total_payable) - parseFloat(response.total_paid) - parseFloat(response.grace_amount);
-                        
+
                         let html = `
                             <div class="text-center mb-3">
                                 <img src="${member.photo_url}" class="rounded-circle" width="80" height="80" alt="Member Photo" style="object-fit: cover;">
@@ -228,13 +245,13 @@
                                 <dt class="col-sm-5">${lang.installment}</dt><dd class="col-sm-7">: ${parseFloat(response.installment_amount).toFixed(2)}</dd>
                             </dl>
                         `;
-                        
+
                         summaryContent.html(html);
                         lucide.createIcons(); // নতুন আইকন রেন্ডার করুন
-                        
+
                         // কিস্তির পরিমাণ এবং grace ফিল্ড আপডেট করুন
                         paidAmountInput.val(response.installment_amount.toFixed(2));
-                        paidAmountInput.trigger('input'); 
+                        paidAmountInput.trigger('input');
                     },
                     error: function() {
                         summaryContent.html(`<p class="text-danger">${lang.failed_to_load_details}</p>`);

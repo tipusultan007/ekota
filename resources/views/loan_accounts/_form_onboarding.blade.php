@@ -7,12 +7,12 @@
 <div class="row">
     <div class="col-md-4 mb-3">
         <label class="form-label">{{ __('messages.disburse_from_account') }} <span class="text-danger">*</span></label>
-        <select name="account_id" class="form-select @error('account_id') is-invalid @enderror" >
+        <select name="account_id" class="form-select @error('account_id') is-invalid @enderror">
             <option value="">{{ __('messages.select_account') }}</option>
             @foreach ($accounts as $account)
-                <option value="{{ $account->id }}" {{ old('account_id') == $account->id ? 'selected' : '' }}>
-                    {{ $account->name }}
-                </option>
+            <option value="{{ $account->id }}" {{ old('account_id') == $account->id ? 'selected' : '' }}>
+                {{ $account->name }}
+            </option>
             @endforeach
         </select>
         @error('account_id') <div class="invalid-feedback">{{ $message }}</div> @enderror
@@ -38,7 +38,7 @@
 
     <div class="col-md-4 mb-3">
         <label class="form-label">{{ __('messages.installment_frequency') }} <span class="text-danger">*</span></label>
-        <select name="installment_frequency" class="form-select" >
+        <select name="installment_frequency" class="form-select">
             <option value="daily">{{ __('messages.daily') }}</option>
             <option value="weekly">{{ __('messages.weekly') }}</option>
             <option value="monthly" selected>{{ __('messages.monthly') }}</option>
@@ -50,14 +50,19 @@
         <input type="date" name="disbursement_date" class="form-control @error('disbursement_date') is-invalid @enderror" value="{{ old('disbursement_date', date('Y-m-d')) }}">
         @error('disbursement_date') <div class="invalid-feedback">{{ $message }}</div> @enderror
     </div>
+    <div class="col-md-4 mb-3">
+        <label class="form-label">{{ __('messages.processing_fee') }}</label>
+        <input type="number" name="processing_fee" class="form-control @error('processing_fee') is-invalid @enderror" value="{{ old('processing_fee') }}" min="0" step="0.01">
+        @error('processing_fee') <div class="invalid-feedback">{{ $message }}</div> @enderror
+    </div>
 </div>
 
 {{-- Guarantor Section --}}
 <h5 class="mt-4 mb-3 border-bottom pb-2">{{ __('messages.guarantor_info') }}</h5>
 <div class="mb-3">
     <label class="form-label">{{ __('messages.guarantor_type') }}</label>
-    <select name="guarantor_type" id="guarantorType" class="form-select @error('guarantor_type') is-invalid @enderror" >
-        <option value="" selected disabled>{{ __('messages.select_type') }}</option>
+    <select name="guarantor_type" id="guarantorType" class="form-select @error('guarantor_type') is-invalid @enderror">
+        <option value="" selected>{{ __('messages.select_type') }}</option>
         <option value="member" {{ old('guarantor_type') == 'member' ? 'selected' : '' }}>{{ __('messages.existing_member') }}</option>
         <option value="outsider" {{ old('guarantor_type') == 'outsider' ? 'selected' : '' }}>{{ __('messages.outsider') }}</option>
     </select>
@@ -67,10 +72,10 @@
 <div id="memberGuarantor" style="display: {{ old('guarantor_type') == 'member' ? 'block' : 'none' }};">
     <div class="mb-3">
         <label class="form-label">{{ __('messages.select_member_guarantor') }}</label>
-        <select name="member_guarantor_id" class="form-select @error('member_guarantor_id') is-invalid @enderror">
+        <select name="member_guarantor_id" class="form-select js-select2 @error('member_guarantor_id') is-invalid @enderror">
             <option value="">{{ __('messages.select_member') }}</option>
             @foreach ($guarantors as $guarantor)
-                <option value="{{ $guarantor->id }}" {{ old('member_guarantor_id') == $guarantor->id ? 'selected' : '' }}>{{ $guarantor->name }} (ID: {{ $guarantor->id }})</option>
+            <option value="{{ $guarantor->id }}" {{ old('member_guarantor_id') == $guarantor->id ? 'selected' : '' }}>{{ $guarantor->name }} (ID: {{ $guarantor->id }})</option>
             @endforeach
         </select>
         @error('member_guarantor_id') <div class="invalid-feedback">{{ $message }}</div> @enderror

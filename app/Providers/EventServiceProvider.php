@@ -20,6 +20,8 @@ use App\Models\SavingsWithdrawal;
 use App\Observers\SavingsWithdrawalObserver;
 use App\Models\Guarantor;
 use App\Observers\GuarantorObserver;
+use App\Models\Transaction;
+use App\Observers\TransactionObserver;
 // ---------------------------------------------
 
 class EventServiceProvider extends ServiceProvider
@@ -46,6 +48,7 @@ class EventServiceProvider extends ServiceProvider
         LoanInstallment::class => [LoanInstallmentObserver::class],
         SavingsWithdrawal::class => [SavingsWithdrawalObserver::class],
         Guarantor::class => [GuarantorObserver::class],
+        Transaction::class => [TransactionObserver::class],
     ];
 
     /**

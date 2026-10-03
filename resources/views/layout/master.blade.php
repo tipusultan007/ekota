@@ -52,6 +52,17 @@
     <link rel="stylesheet" href="{{ asset('css/custom.css') }}">
 
   @stack('style')
+
+    <!-- PWA Meta Tags -->
+    <meta name="theme-color" content="#4f46e5">
+    <link rel="manifest" href="{{ asset('manifest.json') }}">
+    
+    <!-- iOS support -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Ekota">
+    <link rel="apple-touch-icon" href="{{ asset('icons/icon-192x192.png') }}">
+
     <style>
         span.select2-selection__clear {
             margin-right: 30px;
@@ -59,10 +70,10 @@
         .flatpickr-day.today {
             border-color: var(--bs-indigo);
         }
-
     </style>
 </head>
-<body data-base-url="{{url('/')}}">
+
+<body data-base-url="{{url('/')}}" class="sidebar-dark">
 
   <script>
     // Create splash screen container
@@ -86,7 +97,7 @@
     @include('layout.partials.sidebar')
     <div class="page-wrapper">
       @include('layout.partials.header')
-      <div class="page-content container-xxl">
+      <div class="page-content">
         @yield('content')
       </div>
       @include('layout.partials.footer')
@@ -123,6 +134,9 @@
 
           allForms.forEach(form => {
               form.addEventListener('submit', function(event) {
+                  // যদি কোনো স্ক্রিপ্ট ইভেন্ট প্রিভেন্ট করে তবে প্রসেসিং দেখাবে না
+                  if (event.defaultPrevented) return;
+                  
                   // ফর্মের ভেতরে থাকা সকল সাবমিট বাটনকে খুঁজুন
                   const submitButtons = form.querySelectorAll('button[type="submit"]');
 
@@ -134,11 +148,9 @@
                               return;
                           }
 
-                          // বাটনটিকে নিষ্ক্রিয় করুন
+                
                           button.disabled = true;
 
-                          // বাটনের টেক্সট পরিবর্তন করে লোডিং ইন্ডিকেটর দেখান
-                          // মূল টেক্সটটি একটি ডেটা অ্যাট্রিবিউটে সেভ করে রাখুন
                           const originalText = button.innerHTML;
                           button.setAttribute('data-original-text', originalText);
                           button.innerHTML = `
@@ -166,6 +178,111 @@
               }
           });
       }
+
   </script>
+
+  <script>
+      // Service Worker Registration and PWA Install Logic
+      let deferredPrompt;
+      const installItem = document.getElementById('pwa-install-item');
+      const installBtn = document.getElementById('pwa-install-btn');
+
+      if ('serviceWorker' in navigator) {
+          window.addEventListener('load', () => {
+              navigator.serviceWorker.register('/sw.js').then(registration => {
+                  console.log('SW registered: ', registration);
+              }).catch(registrationError => {
+                  console.log('SW registration failed: ', registrationError);
+              });
+          });
+      }
+
+      // Handle beforeinstallprompt event
+      window.addEventListener('beforeinstallprompt', (e) => {
+          // Prevent Chrome 67 and earlier from automatically showing the prompt
+          e.preventDefault();
+          // Stash the event so it can be triggered later.
+          deferredPrompt = e;
+          // Update UI notify the user they can add to home screen
+          if (installItem) {
+              installItem.classList.remove('d-none');
+          }
+
+          if (installBtn) {
+              installBtn.addEventListener('click', (e) => {
+                  // Hide the app provided install promotion
+                  installItem.classList.add('d-none');
+                  // Show the install prompt
+                  deferredPrompt.prompt();
+                  // Wait for the user to respond to the prompt
+                  deferredPrompt.userChoice.then((choiceResult) => {
+                      if (choiceResult.outcome === 'accepted') {
+                          console.log('User accepted the install prompt');
+                      } else {
+                          console.log('User dismissed the install prompt');
+                      }
+                      deferredPrompt = null;
+                  });
+              });
+          }
+      });
+
+      // Show install prompt if app is installed
+      window.addEventListener('appinstalled', (event) => {
+          console.log('PWA was installed');
+          if (installItem) {
+              installItem.classList.add('d-none');
+          }
+      });
+
+      // iOS detection and guidance (Optional improvement)
+      const isIos = () => {
+          const userAgent = window.navigator.userAgent.toLowerCase();
+          return /iphone|ipad|ipod/.test(userAgent);
+      }
+      const isInStandaloneMode = () => ('standalone' in window.navigator) && (window.navigator.standalone);
+
+      if (isIos() && !isInStandaloneMode()) {
+          // You could show a small toast or message here for iOS users
+          console.log('iOS device detected. Suggesting manual installation.');
+          // For now, we'll just log it, but we could show a "How to install" link
+      }
+  </script>
+
+    <!-- Session Notifications -->
+    @if(session('success'))
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            Swal.fire({
+                title: "{{ __('messages.success') ?? 'Success' }}",
+                text: "{{ session('success') }}",
+                icon: 'success',
+                confirmButtonText: "{{ __('messages.ok') ?? 'OK' }}",
+                customClass: {
+                    confirmButton: 'btn btn-primary px-4',
+                },
+                buttonsStyling: false
+            });
+        });
+    </script>
+    @endif
+
+    @if(session('error'))
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            Swal.fire({
+                title: "{{ __('messages.error') ?? 'Error' }}",
+                text: "{{ session('error') }}",
+                icon: 'error',
+                confirmButtonText: "{{ __('messages.ok') ?? 'OK' }}",
+                customClass: {
+                    confirmButton: 'btn btn-primary px-4',
+                },
+                buttonsStyling: false
+            });
+        });
+    </script>
+    @endif
+
 </body>
 </html>

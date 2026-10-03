@@ -69,17 +69,18 @@ class ExpenseController extends Controller
 
         try {
             DB::transaction(function () use ($request, $paymentAccount, $amount) {
-                // ১. মূল খরচের রেকর্ড তৈরি করুন
-                $expense = Expense::create($request->except(['receipt', 'account_id']));
+
+                $data = request()->except(['receipt']);
+                $data['user_id'] = Auth::id();
+
+                $expense = Expense::create($data);
 
                 if ($request->hasFile('receipt')) {
                     $expense->addMediaFromRequest('receipt')->toMediaCollection('expense_receipts');
                 }
 
-                // ২. অ্যাকাউন্টিং সার্ভিস ব্যবহার করে ডাবল-এন্ট্রি লেনদেন তৈরি করুন
                 $expenseCategory = ExpenseCategory::find($request->expense_category_id);
-                // খরচের খাতটিকে একটি Expense Account হিসেবে ধরতে হবে (Chart of Accounts-এ)
-                $expenseGLAccount = Account::where('name', $expenseCategory->name)->where('type', 'Expense')->firstOrFail();
+                $expenseGLAccount = Account::where('name', 'General Expense')->where('type', 'Expense')->firstOrFail();
 
                 $this->accountingService->createTransaction(
                     $request->expense_date,
@@ -92,6 +93,7 @@ class ExpenseController extends Controller
                 );
             });
         } catch (\Exception $e) {
+            \Log::error($e->getMessage());
             return redirect()->route('admin.expenses.index')->with('error', 'An error occurred: ' . $e->getMessage());
         }
         return redirect()->route('admin.expenses.index')->with('success', 'Expense recorded successfully.');
@@ -106,24 +108,24 @@ class ExpenseController extends Controller
         }
 
         // ধাপ ১: ফর্মের ড্রপডাউনের জন্য প্রয়োজনীয় ডেটা প্রস্তুত করুন
-        
+
         // খরচের খাতের তালিকা
         $categories = ExpenseCategory::where('is_active', true)->orderBy('name')->get();
-        
+
         // পেমেন্ট অ্যাকাউন্টের তালিকা (সক্রিয় এবং পেমেন্টের জন্য ব্যবহৃত)
         $accounts = Account::active()->payment()->orderBy('name')->get();
 
         // ধাপ ২: এই খরচের সাথে সম্পর্কিত বিদ্যমান লেনদেনটি খুঁজুন
         $transaction = $expense->transactions()->first();
-        
+
         // যদি কোনো কারণে লেনদেন না থাকে (পুরানো ডেটার ক্ষেত্রে হতে পারে)
         // তাহলে currentPaymentAccountId null থাকবে
         $currentPaymentAccountId = $transaction ? $transaction->journalEntries()->whereNotNull('credit')->first()->account_id : null;
 
         return view('admin.expenses.edit', compact(
-            'expense', 
-            'categories', 
-            'accounts', 
+            'expense',
+            'categories',
+            'accounts',
             'currentPaymentAccountId'
         ));
     }

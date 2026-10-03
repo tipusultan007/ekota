@@ -5,6 +5,8 @@ class SavingsCollectionObserver
 {
     public function deleting(SavingsCollection $savingsCollection): void
     {
-        $savingsCollection->transactions()->delete();
+        foreach ($savingsCollection->transactions as $transaction) {
+            $transaction->delete();
+        }
     }
 }

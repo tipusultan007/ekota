@@ -2,18 +2,17 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Area;
 use App\Models\Expense;
-use App\Models\SavingsWithdrawal;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\DB;
+use App\Models\LoanAccount;
+use App\Models\LoanInstallment;
 use App\Models\Member;
 use App\Models\SavingsAccount;
-use App\Models\LoanAccount;
 use App\Models\SavingsCollection;
-use App\Models\LoanInstallment;
-use App\Models\Area;
+use App\Models\SavingsWithdrawal;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 
 class DashboardController extends Controller
 {
@@ -44,13 +43,13 @@ class DashboardController extends Controller
         $totalLoanDue = LoanAccount::where('status', 'running')->sum(DB::raw('total_payable - total_paid'));
 
         $withdrawableAmount = SavingsAccount::where('status', 'active')->sum('current_balance'); // মোট সঞ্চয় যা তোলা সম্ভব
-        $totalWithdrawn = SavingsWithdrawal::sum('total_amount'); // সর্বমোট উত্তোলন
+        $totalWithdrawn = SavingsWithdrawal::sum('total_amount') + SavingsCollection::sum('withdraw_amount'); // সর্বমোট উত্তোলন
 
         // === আজকের সারাংশ ===
         $todaySavings = SavingsCollection::whereDate('collection_date', today())->sum('amount');
         $todayInstallments = LoanInstallment::whereDate('payment_date', today())->sum('paid_amount');
 
-        $todayWithdrawals = SavingsWithdrawal::whereDate('withdrawal_date', today())->sum('total_amount');
+        $todayWithdrawals = SavingsCollection::whereDate('collection_date', today())->sum('withdraw_amount');
         $todayExpenses = Expense::whereDate('expense_date', today())->sum('amount');
         // === চার্টের ডেটা: গত ৬ মাসের কালেকশন ===
         $monthlyCollections = $this->getMonthlyCollectionData();
@@ -65,10 +64,20 @@ class DashboardController extends Controller
                 ];
             });
 
+        // === নতুন উইজেটের জন্য ডেটা ===
+        // ১. সাম্প্রতিক লেনদেন
+        $recentTransactions = \App\Models\Transaction::with(['journalEntries.account', 'transactionable'])
+            ->latest()
+            ->limit(8)
+            ->get();
+
+        // ২. ক্যাশ ও ব্যাংক অ্যাকাউন্টের ব্যালেন্স
+        $paymentAccounts = \App\Models\Account::payment()->active()->get();
+
         return view('dashboard.admin', compact(
             'totalMembers', 'activeMembers', 'totalSavings', 'totalLoanDisbursed', 'totalLoanDue',
-            'todaySavings', 'todayInstallments', 'monthlyCollections', 'areaWiseMembers','todayExpenses', 'todayWithdrawals', 'withdrawableAmount',
-            'totalWithdrawn',
+            'todaySavings', 'todayInstallments', 'monthlyCollections', 'areaWiseMembers', 'todayExpenses',
+            'todayWithdrawals', 'withdrawableAmount', 'totalWithdrawn', 'recentTransactions', 'paymentAccounts'
         ));
     }
 
@@ -84,46 +93,50 @@ class DashboardController extends Controller
 
         // === স্ট্যাটাস কার্ড (অপরিবর্তিত) ===
         $totalMembers = Member::whereIn('area_id', $areaIds)->count();
-        $totalSavings = SavingsAccount::whereIn('member_id', fn($q) => $q->select('id')->from('members')->whereIn('area_id', $areaIds))->sum('current_balance');
-        $totalLoanDue = LoanAccount::where('status', 'running')->whereIn('member_id', fn($q) => $q->select('id')->from('members')->whereIn('area_id', $areaIds))->sum(DB::raw('total_payable - total_paid'));
+        $totalSavings = SavingsAccount::whereIn('member_id', fn ($q) => $q->select('id')->from('members')->whereIn('area_id', $areaIds))->sum('current_balance');
+        $totalLoanDue = LoanAccount::where('status', 'running')->whereIn('member_id', fn ($q) => $q->select('id')->from('members')->whereIn('area_id', $areaIds))->sum(DB::raw('total_payable - total_paid'));
 
         // === আজকের পারফরম্যান্স (অপরিবর্তিত) ===
         $todaySavings = SavingsCollection::where('collector_id', $user->id)->whereDate('collection_date', today())->sum('amount');
         $todayInstallments = LoanInstallment::where('collector_id', $user->id)->whereDate('payment_date', today())->sum('paid_amount');
 
         // === সেরা ৫ খেলাপি (অপরিবর্তিত) ===
-        $topDefaulters = LoanAccount::where('status', 'running')->whereIn('member_id', fn($q) => $q->select('id')->from('members')->whereIn('area_id', $areaIds))->select('*', DB::raw('total_payable - total_paid as due_amount'))->orderBy('due_amount', 'desc')->with('member')->limit(5)->get();
+        $topDefaulters = LoanAccount::where('status', 'running')->whereIn('member_id', fn ($q) => $q->select('id')->from('members')->whereIn('area_id', $areaIds))->select('*', DB::raw('total_payable - total_paid as due_amount'))->orderBy('due_amount', 'desc')->with('member')->limit(5)->get();
 
         // ১. সঞ্চয় আদায়ের তালিকা
         $savingsDueToday = SavingsAccount::where('status', 'active')
-            ->whereIn('member_id', fn($q) => $q->select('id')->from('members')->whereIn('area_id', $areaIds))
+            ->whereIn('member_id', fn ($q) => $q->select('id')->from('members')->whereIn('area_id', $areaIds))
             ->whereDate('next_due_date', '<=', $todayString) // যাদের কিস্তি আজ বা তার আগে বকেয়া
             ->whereDoesntHave('collections', function ($query) use ($todayString) {
                 // এবং যাদের জন্য আজকের তারিখে কোনো কালেকশন এন্ট্রি নেই
                 $query->whereDate('collection_date', '=', $todayString);
             })
             ->with('member')
-            ->orderBy('next_due_date', 'asc')
+            ->orderByRaw('CAST(account_no AS UNSIGNED) ASC')
             ->get();
 
         // ২. ঋণ কিস্তি আদায়ের তালিকা
         $loanInstallmentsDueToday = LoanAccount::where('status', 'running')
-            ->whereIn('member_id', fn($q) => $q->select('id')->from('members')->whereIn('area_id', $areaIds))
+            ->whereIn('member_id', fn ($q) => $q->select('id')->from('members')->whereIn('area_id', $areaIds))
             ->whereDate('next_due_date', '<=', $todayString) // যাদের কিস্তি আজ বা তার আগে বকেয়া
             ->whereDoesntHave('installments', function ($query) use ($todayString) {
                 // এবং যাদের জন্য আজকের তারিখে কোনো কিস্তির এন্ট্রি নেই
                 $query->whereDate('payment_date', '=', $todayString);
             })
             ->with('member')
-            ->orderBy('next_due_date', 'asc')
+            ->orderByRaw('CAST(account_no AS UNSIGNED) ASC')
             ->get();
         // ---------------------------------------------
 
+        // ৩. ডিফল্ট ক্যাশ অ্যাকাউন্ট (ID) সংগ্রহ
+        $defaultCashAccount = \App\Models\Account::where('code', '1010')->first();
+        $defaultCashAccountId = $defaultCashAccount ? $defaultCashAccount->id : null;
 
         return view('dashboard.field_worker', compact(
             'totalMembers', 'totalSavings', 'totalLoanDue',
             'todaySavings', 'todayInstallments', 'topDefaulters',
-            'savingsDueToday', 'loanInstallmentsDueToday' // নতুন ভেরিয়েবল পাস করুন
+            'savingsDueToday', 'loanInstallmentsDueToday',
+            'defaultCashAccountId'
         ));
     }
 

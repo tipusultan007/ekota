@@ -6,6 +6,7 @@
     font-style: normal;
     font-display: swap;
 }
+
 /*body {
     font-family: 'Roboto', 'Kalpurush', sans-serif;
 }
@@ -23,8 +24,10 @@ h6 { font-size: 1rem; }    !* ~16px *!
 
 /* --- বাংলা ভাষার জন্য বেস ফন্ট সাইজ সামান্য বড় করা হলো --- */
 html[lang="bn"] {
-    font-size: 16px; /* বাংলা সাইজ (px ইউনিটে) */
+    font-size: 16px;
+    /* বাংলা সাইজ (px ইউনিটে) */
 }
+
 /*div#areaPieChart span {
     font-family: 'Kalpurush' !important;
 }*/
@@ -57,3 +60,134 @@ span.link-title {
     font-size: 1rem !important;
 }
 */
+.badge-scheme {
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+.badge-daily {
+    background-color: #e3f2fd;
+    color: #1976d2;
+}
+
+.badge-dps {
+    background-color: #e8f5e9;
+    color: #2e7d32;
+}
+
+.badge-weekly {
+    background-color: #fff3e0;
+    color: #ef6c00;
+}
+
+/* Write your custom css here */
+.search-form {
+    position: relative !important;
+}
+
+.search-results-dropdown {
+    position: absolute !important;
+    top: calc(100% + 5px) !important;
+    left: 0 !important;
+    width: 100% !important;
+    min-width: 350px !important;
+    z-index: 9999 !important;
+    background: #ffffff !important;
+    border-radius: 12px !important;
+    overflow: hidden !important;
+    border: 1px solid rgba(0, 0, 0, 0.1) !important;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15) !important;
+}
+
+.search-result-item {
+    display: flex !important;
+    align-items: center !important;
+    padding: 12px 16px !important;
+    text-decoration: none !important;
+    color: #333 !important;
+    transition: all 0.2s ease !important;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.05) !important;
+    background: #fff !important;
+}
+
+.search-result-item:last-child {
+    border-bottom: none !important;
+}
+
+.search-result-item:hover {
+    background: #f0f7ff !important;
+    color: #000 !important;
+    padding-left: 20px !important;
+}
+
+.search-result-photo {
+    width: 44px !important;
+    height: 44px !important;
+    border-radius: 50% !important;
+    object-fit: cover !important;
+    margin-right: 15px !important;
+    border: 2px solid #eee !important;
+}
+
+.search-result-info {
+    flex-grow: 1 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: center !important;
+}
+
+.search-result-name {
+    display: block !important;
+    font-weight: 700 !important;
+    font-size: 15px !important;
+    margin-bottom: 3px !important;
+    color: var(--bs-primary) !important;
+}
+
+.search-result-meta {
+    display: flex !important;
+    font-size: 12px !important;
+    color: #6c757d !important;
+    gap: 15px !important;
+    flex-wrap: wrap !important;
+}
+
+.search-result-meta span {
+    display: flex !important;
+    align-items: center !important;
+}
+
+.search-results-no-data {
+    padding: 30px 20px !important;
+    text-align: center !important;
+    color: #999 !important;
+    font-style: italic !important;
+    background: #fff !important;
+}
+
+/* Dark mode adjustments - using body class if available */
+[data-bs-theme='dark'] .search-results-dropdown {
+    background: #1e1e2d !important;
+    border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+[data-bs-theme='dark'] .search-result-item {
+    background: #1e1e2d !important;
+    color: #e1e1e1 !important;
+    border-bottom-color: rgba(255, 255, 255, 0.05) !important;
+}
+
+[data-bs-theme='dark'] .search-result-item:hover {
+    background: #2a2a3d !important;
+    color: #fff !important;
+}
+
+[data-bs-theme='dark'] .search-result-name {
+    color: #5bc0de !important;
+}
+
+[data-bs-theme='dark'] .search-result-meta {
+    color: #888 !important;
+}

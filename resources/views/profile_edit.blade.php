@@ -1,4 +1,5 @@
 @extends('layout.master')
+@section('title', __('messages.profile') . ' | ' . config('app.name'))
 
 @push('plugin-styles')
     {{-- কোনো নির্দিষ্ট প্লাগইন লাগলে এখানে যোগ করুন --}}

@@ -1,4 +1,5 @@
 @extends('layout.master')
+@section('title', __('messages.add_member_and_account') . ' | ' . config('app.name'))
 
 @section('content')
     <nav class="page-breadcrumb">

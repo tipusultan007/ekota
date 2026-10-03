@@ -7,6 +7,8 @@ class LoanInstallmentObserver
     {
         \Illuminate\Support\Facades\Log::info("Deleting transactions for Loan Installment ID: " . $loanInstallment->id);
 
-        $loanInstallment->transactions()->delete();
+        foreach ($loanInstallment->transactions as $transaction) {
+            $transaction->delete();
+        }
     }
 }

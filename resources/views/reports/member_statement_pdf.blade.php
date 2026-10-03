@@ -4,10 +4,11 @@
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
     <title>Account Statement - {{ $member->name }}</title>
     <style>
-
         body {
-            font-family: 'Nikosh', sans-serif;
-            font-size: 12px;
+            font-family: 'kalpurush', sans-serif;
+            font-size: 14px;
+            color: #333;
+            line-height: 1.6;
         }
         .container { width: 100%; margin: 0 auto; }
         .header, .footer { text-align: center; }
@@ -56,22 +57,20 @@
             <tr>
                 <td>{{ $transaction->date->format('d/m/Y') }}</td>
                 <td>{{ $transaction->description }}</td>
-                <td class="text-end">{{ number_format($transaction->deposit, 2) }}</td>
-                <td class="text-end">{{ number_format($transaction->withdrawal, 2) }}</td>
+                <td class="text-end">{{ number_format($transaction->deposit, 0) }}</td>
+                <td class="text-end">{{ number_format($transaction->withdrawal, 0) }}</td>
             </tr>
         @empty
             <tr>
                 <td colspan="4" style="text-align: center;">No transactions found in this period.</td>
             </tr>
         @endforelse
+            <tr style="background-color: #f2f2f2; font-weight: bold;">
+                <td colspan="2" class="text-end">Total:</td>
+                <td class="text-end">{{ number_format($transactions->sum('deposit'), 0) }}</td>
+                <td class="text-end">{{ number_format($transactions->sum('withdrawal'), 0) }}</td>
+            </tr>
         </tbody>
-        <tfoot>
-        <tr style="background-color: #f2f2f2;">
-            <td colspan="2" class="text-end"><strong>Total:</strong></td>
-            <td class="text-end"><strong>{{ number_format($transactions->sum('deposit'), 2) }}</strong></td>
-            <td class="text-end"><strong>{{ number_format($transactions->sum('withdrawal'), 2) }}</strong></td>
-        </tr>
-        </tfoot>
     </table>
 
     <div class="footer" style="margin-top: 50px;">

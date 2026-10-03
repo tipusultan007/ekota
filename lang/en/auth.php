@@ -19,11 +19,12 @@ return [
     'welcome' => 'Welcome back! Log in to your account.',
     'phone' => 'Phone Number',
     'phone_placeholder' => 'Enter your phone number',
-    'password' => 'Password',
+    'password_field' => 'Password',
     'password_placeholder' => 'Enter your password',
     'remember' => 'Remember me',
     'forgot' => 'Forgot Your Password?',
     'login' => 'Login',
     'no_account' => "Don't have an account?",
     'register' => 'Sign up',
+    'inactive' => 'Your account is inactive or terminated. Please contact the administrator.',
 ];

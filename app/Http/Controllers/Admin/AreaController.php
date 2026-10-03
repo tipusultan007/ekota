@@ -13,7 +13,7 @@ class AreaController extends Controller
      */
     public function index()
     {
-        $areas = Area::latest()->paginate(10); // সর্বশেষ তৈরি করা এলাকাগুলো আগে দেখাবে
+        $areas = Area::latest()->paginate(10); 
         return view('admin.areas.index', compact('areas'));
     }
 

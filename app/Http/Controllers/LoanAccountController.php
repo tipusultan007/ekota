@@ -9,18 +9,17 @@ use App\Models\Guarantor;
 use App\Models\LoanAccount;
 use App\Models\LoanInstallment;
 use App\Models\Member;
-use App\Models\SavingsAccount;
 use App\Services\AccountingService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 
 class LoanAccountController extends Controller
 {
     use TransactionReversalTrait;
+
     protected AccountingService $accountingService;
 
     // কন্ট্রোলারে অ্যাকাউন্টিং সার্ভিস ইনজেক্ট করুন
@@ -36,11 +35,11 @@ class LoanAccountController extends Controller
 
         if ($user->hasRole('Field Worker')) {
             $areaIds = $user->areas()->pluck('areas.id')->toArray();
-            $query->whereHas('member', fn($q) => $q->whereIn('area_id', $areaIds));
+            $query->whereHas('member', fn ($q) => $q->whereIn('area_id', $areaIds));
         }
 
         if ($request->filled('area_id') && $user->hasRole('Admin')) {
-            $query->whereHas('member', fn($q) => $q->where('area_id', $request->area_id));
+            $query->whereHas('member', fn ($q) => $q->where('area_id', $request->area_id));
         }
         if ($request->filled('member_id')) {
             $query->where('member_id', $request->member_id);
@@ -52,11 +51,53 @@ class LoanAccountController extends Controller
             $query->whereBetween('disbursement_date', [$request->start_date, $request->end_date]);
         }
 
-        $loanAccounts = $query->latest()->paginate(25);
-        $members = Member::orderBy('name')->get(['id', 'name']);
-        $areas = Area::orderBy('name')->get(['id', 'name']);
+        // Statistics calculation for Loan Origination (Filtered by disbursement_date)
+        $statistics = (clone $query)->selectRaw('
+            SUM(loan_amount) as total_loan_amount,
+            SUM(loan_amount - (total_paid * (loan_amount / NULLIF(total_payable, 0))) - (grace_amount * (loan_amount / NULLIF(total_payable, 0)))) as total_due_amount
+        ')->first();
 
-        return view('loan_accounts.index', compact('loanAccounts', 'members', 'areas'));
+        // Total Collections Calculation using LoanInstallments for accurate date-filtered collections (Filtered by payment_date)
+        $collectionsQuery = \App\Models\LoanInstallment::join('loan_accounts', 'loan_installments.loan_account_id', '=', 'loan_accounts.id')
+            ->join('members', 'loan_accounts.member_id', '=', 'members.id');
+            
+        if ($request->filled('start_date') && $request->filled('end_date')) {
+            $collectionsQuery->whereBetween('loan_installments.payment_date', [$request->start_date, $request->end_date]);
+        }
+        
+        if ($user->hasRole('Field Worker')) {
+            $areaIds = $user->areas()->pluck('areas.id')->toArray();
+            $collectionsQuery->whereIn('members.area_id', $areaIds);
+        }
+        
+        if ($request->filled('area_id') && $user->hasRole('Admin')) {
+            $collectionsQuery->where('members.area_id', $request->area_id);
+        }
+        
+        if ($request->filled('member_id')) {
+            $collectionsQuery->where('loan_accounts.member_id', $request->member_id);
+        }
+        
+        if ($request->filled('status')) {
+            $collectionsQuery->where('loan_accounts.status', $request->status);
+        }
+        
+        $collectionStats = $collectionsQuery->selectRaw('
+            SUM(loan_installments.paid_amount) as total_collection,
+            SUM(loan_installments.paid_amount * (loan_accounts.loan_amount / loan_accounts.total_payable)) as total_principal_collected,
+            SUM(loan_installments.paid_amount * ((loan_accounts.total_payable - loan_accounts.loan_amount) / loan_accounts.total_payable)) as total_interest_collected
+        ')->first();
+
+        $loanAccounts = $query->orderByRaw('CAST(account_no AS UNSIGNED) ASC')->paginate(25);
+        $totalLoanAccounts = $loanAccounts->total();
+        $members = Member::orderBy('name')->get(['id', 'name', 'account_no']);
+        if ($user->hasRole('Admin')) {
+            $areas = Area::orderBy('name')->get(['id', 'name']);
+        } else {
+            $areas = $user->areas()->orderBy('name')->get(['areas.id', 'areas.name']);
+        }
+
+        return view('loan_accounts.index', compact('loanAccounts', 'totalLoanAccounts', 'members', 'areas', 'statistics', 'collectionStats'));
     }
 
     public function create(Member $member)
@@ -73,29 +114,33 @@ class LoanAccountController extends Controller
 
     public function newLoanAccount()
     {
-        $members = Member::select('id', 'name', 'mobile_no')->get();
+        $members = Member::select('id', 'name', 'mobile_no', 'account_no')->get();
         $guarantors = Member::select('id', 'name', 'mobile_no')->get();
         $accounts = Account::active()->payment()->get();
+
         return view('loan_accounts.new', compact('members', 'accounts', 'guarantors'));
     }
 
     public function storeLoanAccount(Request $request)
     {
-        $request->validate([
+        // dd(request()->all());
+
+        $validatedData = $request->validate([
             'member_id' => 'required|exists:members,id',
             'account_id' => 'required|exists:accounts,id',
             'loan_amount' => 'required|numeric|min:1',
             'interest_rate' => 'required|numeric|min:0',
             'number_of_installments' => 'required|integer|min:1',
             'disbursement_date' => 'required|date',
-            'guarantor_type' => 'required|in:member,outsider',
+            'guarantor_type' => 'nullable|in:member,outsider',
             'installment_frequency' => 'required|string|in:daily,weekly,monthly',
+            'processing_fee' => 'nullable|numeric|min:0',
 
             // শর্তসাপেক্ষ ভ্যালিডেশন
             'member_guarantor_id' => [
                 Rule::requiredIf($request->guarantor_type == 'member'),
                 'nullable',
-                'exists:members,id'
+                'exists:members,id',
             ],
 
             // বাইরের জামিনদারের জন্য শর্ত
@@ -103,16 +148,16 @@ class LoanAccountController extends Controller
                 Rule::requiredIf($request->guarantor_type == 'outsider'),
                 'nullable',
                 'string',
-                'max:255'
+                'max:255',
             ],
             'outsider_phone' => [
                 'nullable',
                 'string',
-                'max:20'
+                'max:20',
             ],
             'outsider_address' => [
                 'nullable',
-                'string'
+                'string',
             ],
             'guarantor_nid' => 'nullable|image|mimes:jpeg,png,jpg|max:2048',
             'guarantor_documents.*' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:2048',
@@ -124,11 +169,12 @@ class LoanAccountController extends Controller
         $disbursementAccount = Account::findOrFail($request->account_id);
         $loanAmount = $request->loan_amount;
         $member = Member::find($request->member_id);
-
+        $processingFee = (float) ($request->processing_fee ?? 0);
 
         DB::beginTransaction();
 
         try {
+            $accountNumber = $member->account_no;
             // ধাপ ১: ঋণ অ্যাকাউন্ট তৈরি করুন
             $interest = ($loanAmount * $request->interest_rate) / 100;
             $total_payable = $loanAmount + $interest;
@@ -139,7 +185,7 @@ class LoanAccountController extends Controller
 
             $loanAccount = LoanAccount::create([
                 'member_id' => $member->id,
-                'account_no' => 'LOAN-' . $member->id . '-' . time(),
+                'account_no' => $accountNumber,
                 'loan_amount' => $loanAmount,
                 'interest_rate' => $request->interest_rate,
                 'number_of_installments' => $request->number_of_installments,
@@ -148,17 +194,36 @@ class LoanAccountController extends Controller
                 'installment_amount' => $installment_amount,
                 'installment_frequency' => $request->installment_frequency,
                 'next_due_date' => $nextDueDate,
+                'processing_fee' => $processingFee,
             ]);
 
-            // ধাপ ২: অ্যাকাউন্টিং ইন্টিগ্রেশন
-            $loanAccount->transactions()->create([
-                'account_id' => $disbursementAccount->id,
-                'type' => 'debit',
-                'amount' => $loanAmount,
-                'description' => 'Loan disbursed to member ' . $member->name . ' (A/C: ' . $loanAccount->account_no . ')',
-                'transaction_date' => $disbursementDate,
-            ]);
-            $disbursementAccount->decrement('balance', $loanAmount);
+            $loansReceivableAccount = Account::where('code', '1110')->firstOrFail();
+            $this->accountingService->createTransaction(
+                $request->disbursement_date,
+                'Loan disbursed to '.$member->name,
+                [
+                    // Debit Entry:
+                    ['account_id' => $loansReceivableAccount->id, 'debit' => $loanAmount],
+                    // Credit Entry:
+                    ['account_id' => $disbursementAccount->id, 'credit' => $loanAmount],
+                ],
+                $loanAccount // এই লেনদেনটি LoanAccount মডেলের সাথে যুক্ত
+            );
+
+            if ($processingFee > 0) {
+                $feeIncomeAccount = Account::where('code', '4020')->firstOrFail();
+                $this->accountingService->createTransaction(
+                    $request->disbursement_date,
+                    'Processing fee income from '.$member->name,
+                    [
+                        // Debit Entry:
+                        ['account_id' => $disbursementAccount->id, 'debit' => $processingFee],
+                        // Credit Entry:
+                        ['account_id' => $feeIncomeAccount->id, 'credit' => $processingFee],
+                    ],
+                    $loanAccount // এই লেনদেনটিও LoanAccount মডেলের সাথে যুক্ত
+                );
+            }
 
             $guarantorData = ['loan_account_id' => $loanAccount->id];
             if ($request->guarantor_type === 'member') {
@@ -198,9 +263,10 @@ class LoanAccountController extends Controller
             // যদি কোনো সমস্যা হয়, সকল পরিবর্তন বাতিল করুন
             DB::rollBack();
 
-            return redirect()->back()->with('error', 'Something went wrong! ' . $e->getMessage())->withInput();
+            return redirect()->back()->with('error', 'Something went wrong! '.$e->getMessage())->withInput();
         }
     }
+
     /**
      * Store a newly created resource in storage.
      */
@@ -208,7 +274,7 @@ class LoanAccountController extends Controller
     {
         $this->authorizeAccess($member);
 
-        $request->validate([
+        $validatedData = $request->validate([
             'account_id' => 'required|exists:accounts,id',
             'loan_amount' => 'required|numeric|min:1',
             'interest_rate' => 'required|numeric|min:0',
@@ -218,11 +284,29 @@ class LoanAccountController extends Controller
             'installment_frequency' => 'required|string|in:daily,weekly,monthly',
             'processing_fee' => 'nullable|numeric|min:0',
 
-            // শর্তসাপেক্ষ ভ্যালিডেশন
-            'member_guarantor_id' => 'required_if:guarantor_type,member|exists:members,id',
-            'outsider_name' => 'required_if:guarantor_type,outsider|string|max:255',
-            'outsider_phone' => 'required_if:guarantor_type,outsider|string|max:20',
-            'outsider_address' => 'required_if:guarantor_type,outsider|string',
+            // সদস্য জামিনদারের জন্য শর্ত
+            'member_guarantor_id' => [
+                Rule::requiredIf($request->guarantor_type == 'member'),
+                'nullable',
+                'exists:members,id',
+            ],
+
+            // বাইরের জামিনদারের জন্য শর্ত
+            'outsider_name' => [
+                Rule::requiredIf($request->guarantor_type == 'outsider'),
+                'nullable',
+                'string',
+                'max:255',
+            ],
+            'outsider_phone' => [
+                'nullable',
+                'string',
+                'max:20',
+            ],
+            'outsider_address' => [
+                'nullable',
+                'string',
+            ],
             'guarantor_nid' => 'nullable|image|mimes:jpeg,png,jpg|max:2048',
             'guarantor_documents.*' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:2048',
 
@@ -230,11 +314,13 @@ class LoanAccountController extends Controller
             'loan_documents.*' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:2048',
         ]);
 
+        // dd($validatedData);
         $disbursementAccount = Account::findOrFail($request->account_id);
         $loanAmount = $request->loan_amount;
-        $processingFee = (float)($request->processing_fee ?? 0);
+        $processingFee = (float) ($request->processing_fee ?? 0);
 
         try {
+
             DB::transaction(function () use ($request, $member, $disbursementAccount, $loanAmount, $processingFee) {
                 // ধাপ ১: ঋণ অ্যাকাউন্ট তৈরি করুন
                 $interest = ($loanAmount * $request->interest_rate) / 100;
@@ -242,14 +328,15 @@ class LoanAccountController extends Controller
                 $installment_amount = $total_payable / $request->number_of_installments;
                 $disbursementAccount = Account::findOrFail($request->account_id);
 
-
                 $disbursementDate = Carbon::parse($request->disbursement_date);
 
                 $nextDueDate = \App\Helpers\DateHelper::calculateNextDueDate($disbursementDate, $request->installment_frequency);
 
+                $accountNumber = $member->account_no;
+
                 $loanAccount = LoanAccount::create([
                     'member_id' => $member->id,
-                    'account_no' => 'LOAN-' . $member->id . '-' . time(),
+                    'account_no' => $accountNumber,
                     'loan_amount' => $loanAmount,
                     'interest_rate' => $request->interest_rate,
                     'number_of_installments' => $request->number_of_installments,
@@ -264,7 +351,7 @@ class LoanAccountController extends Controller
                 $loansReceivableAccount = Account::where('code', '1110')->firstOrFail();
                 $this->accountingService->createTransaction(
                     $request->disbursement_date,
-                    'Loan disbursed to ' . $member->name,
+                    'Loan disbursed to '.$member->name,
                     [
                         // Debit Entry:
                         ['account_id' => $loansReceivableAccount->id, 'debit' => $loanAmount],
@@ -278,7 +365,7 @@ class LoanAccountController extends Controller
                     $feeIncomeAccount = Account::where('code', '4020')->firstOrFail();
                     $this->accountingService->createTransaction(
                         $request->disbursement_date,
-                        'Processing fee income from ' . $member->name,
+                        'Processing fee income from '.$member->name,
                         [
                             // Debit Entry:
                             ['account_id' => $disbursementAccount->id, 'debit' => $processingFee],
@@ -290,8 +377,7 @@ class LoanAccountController extends Controller
                 }
 
                 // খ) অ্যাকাউন্ট থেকে ব্যালেন্স বিয়োগ করুন
-                //$disbursementAccount->decrement('balance', $loanAmount);
-
+                // $disbursementAccount->decrement('balance', $loanAmount);
 
                 // ধাপ ৩: গ্যারান্টার এবং ডকুমেন্ট পরিচালনা (অপরিবর্তিত)
                 $guarantorData = ['loan_account_id' => $loanAccount->id];
@@ -325,11 +411,36 @@ class LoanAccountController extends Controller
             });
         } catch (\Exception $e) {
             \Log::error($e->getMessage());
-            return redirect()->back()->with('error', 'Something went wrong! ' . $e->getMessage())->withInput();
+
+            return redirect()->back()->with('error', 'Something went wrong! '.$e->getMessage())->withInput();
         }
 
         return redirect()->route('members.show', $member->id)->with('success', 'Loan disbursed and recorded successfully.');
     }
+
+    /**
+     * Helper function to generate the next sequential loan account number.
+     */
+    public function generateNextLoanAccountNumber()
+    {
+        $prefix = 'LOAN-';
+        $lastAccount = LoanAccount::where('account_no', 'like', $prefix.'%')
+            ->select('account_no')
+            ->get()
+            ->sortByDesc(function ($account) use ($prefix) {
+                return (int) str_replace($prefix, '', $account->account_no);
+            })
+            ->first();
+
+        $newNumber = 1;
+        if ($lastAccount) {
+            $lastNumber = (int) str_replace($prefix, '', $lastAccount->account_no);
+            $newNumber = $lastNumber + 1;
+        }
+
+        return $prefix.str_pad($newNumber, 5, '0', STR_PAD_LEFT);
+    }
+
     /**
      * Display the specified resource.
      */
@@ -339,18 +450,18 @@ class LoanAccountController extends Controller
         $user = Auth::user();
         if ($user->hasRole('Field Worker')) {
             $areaIds = $user->areas()->pluck('areas.id')->toArray();
-            if (!in_array($loanAccount->member->area_id, $areaIds)) {
+            if (! in_array($loanAccount->member->area_id, $areaIds)) {
                 abort(403, 'UNAUTHORIZED ACTION.');
             }
         }
 
         // প্রয়োজনীয় সকল সম্পর্ক লোড করুন
         $loanAccount->load('member', 'guarantor.member', 'installments.collector');
-        $accounts = Account::active()->payment()->orderBy('name')->get();
-
+        $accounts = Account::active()->payment()->orderBy('id')->get();
 
         return view('loan_accounts.show', compact('loanAccount', 'accounts'));
     }
+
     // একটি হেল্পার ফাংশন যা অ্যাক্সেস নিয়ন্ত্রণ করবে
     private function authorizeAccess(Member $member)
     {
@@ -362,7 +473,7 @@ class LoanAccountController extends Controller
 
         if ($user->hasRole('Field Worker')) {
             $allowedAreaIds = $user->areas()->pluck('areas.id')->toArray();
-            if (!in_array($member->area_id, $allowedAreaIds)) {
+            if (! in_array($member->area_id, $allowedAreaIds)) {
                 abort(403, 'UNAUTHORIZED ACTION. You do not have permission to access members from this area.');
             }
         }
@@ -524,7 +635,7 @@ class LoanAccountController extends Controller
     public function payOff(Request $request, LoanAccount $loanAccount)
     {
         // নিরাপত্তা যাচাই
-        if (!Auth::user()->hasRole('Admin')) {
+        if (! Auth::user()->hasRole('Admin')) {
             abort(403, 'UNAUTHORIZED ACTION.');
         }
 
@@ -537,11 +648,11 @@ class LoanAccountController extends Controller
         $request->validate([
             'payment_date' => 'required|date',
             'account_id' => 'required|exists:accounts,id',
-            'grace_amount' => 'nullable|numeric|min:0|max:' . $dueAmount,
+            'grace_amount' => 'nullable|numeric|min:0|max:'.$dueAmount,
             'notes' => 'nullable|string',
         ]);
 
-        $graceAmount = (float)($request->grace_amount ?? 0);
+        $graceAmount = (float) ($request->grace_amount ?? 0);
         $finalPayment = $dueAmount - $graceAmount;
 
         if ($dueAmount <= 0) {
@@ -551,68 +662,68 @@ class LoanAccountController extends Controller
         try {
             DB::transaction(function () use ($request, $loanAccount, $graceAmount, $finalPayment, $dueAmount) {
 
-              $depositAccount = Account::findOrFail($request->account_id);
-            $installment = null;
-            
-            // --- ধাপ ১: একটি মাত্র কিস্তির রেকর্ড তৈরি করুন (যদি কোনো পেমেন্ট বা ছাড় থাকে) ---
-            if ($finalPayment > 0 || $graceAmount > 0) {
-                $installment = $loanAccount->installments()->create([
-                    'member_id' => $loanAccount->member_id,
-                    'collector_id' => Auth::id(),
-                    'installment_no' => ($loanAccount->installments()->count() + 1),
-                    'paid_amount' => $finalPayment,
-                    'grace_amount' => $graceAmount, // কিস্তির সাথে grace amount রেকর্ড করুন
-                    'payment_date' => $request->payment_date,
-                    'notes' => 'Final pay-off installment. ' . $request->notes,
-                ]);
-            }
-            
-            // --- ধাপ ২: একটি মাত্র যৌগিক জাবেদা দাখিলা (Compound Journal Entry) তৈরি করুন ---
-            
-            // বকেয়ার আসল এবং সুদ আলাদা করুন
-            $duePrincipalPart = $dueAmount * ($loanAccount->loan_amount / $loanAccount->total_payable);
-            $dueInterestPart = $dueAmount - $duePrincipalPart;
-            
-            $loansReceivableAccount = Account::where('code', '1110')->firstOrFail();
-            $interestIncomeAccount = Account::where('code', '4010')->firstOrFail();
-            $loanGraceAccount = Account::where('code', '5030')->firstOrFail(); // Loan Grace Expense Account
+                $depositAccount = Account::findOrFail($request->account_id);
+                $installment = null;
 
-            $entries = [];
+                // --- ধাপ ১: একটি মাত্র কিস্তির রেকর্ড তৈরি করুন (যদি কোনো পেমেন্ট বা ছাড় থাকে) ---
+                if ($finalPayment > 0 || $graceAmount > 0) {
+                    $installment = $loanAccount->installments()->create([
+                        'member_id' => $loanAccount->member_id,
+                        'collector_id' => Auth::id(),
+                        'installment_no' => ($loanAccount->installments()->count() + 1),
+                        'paid_amount' => $finalPayment,
+                        'grace_amount' => $graceAmount, // কিস্তির সাথে grace amount রেকর্ড করুন
+                        'payment_date' => $request->payment_date,
+                        'notes' => 'Final pay-off installment. '.$request->notes,
+                    ]);
+                }
 
-            // ক) Debit Entry: ক্যাশ/ব্যাংক-এ মোট যে টাকা জমা হচ্ছে
-            if ($finalPayment > 0) {
-                $entries[] = ['account_id' => $depositAccount->id, 'debit' => $finalPayment];
-            }
-            // খ) Debit Entry: প্রদত্ত ছাড় একটি খরচ
-            if ($graceAmount > 0) {
-                $entries[] = ['account_id' => $loanGraceAccount->id, 'debit' => $graceAmount];
-            }
+                // --- ধাপ ২: একটি মাত্র যৌগিক জাবেদা দাখিলা (Compound Journal Entry) তৈরি করুন ---
 
-            // গ) Credit Entry: ঋণের আসল (Receivable) কমানো হচ্ছে
-            // যদি ছাড় দেওয়া হয়, তাহলে সুদ থেকে আগে বাদ যাবে
-            $interestToClear = min($dueInterestPart, $finalPayment);
-            $principalToClear = $finalPayment - $interestToClear;
-            
-            // যা কিছু বাকি থাকলো, তা grace বা আসল থেকে ক্লিয়ার হবে
-            $remainingGrace = $graceAmount - ($dueInterestPart - $interestToClear);
-            if ($remainingGrace > 0) {
-                 $principalToClear += $remainingGrace;
-            }
+                // বকেয়ার আসল এবং সুদ আলাদা করুন
+                $duePrincipalPart = $dueAmount * ($loanAccount->loan_amount / $loanAccount->total_payable);
+                $dueInterestPart = $dueAmount - $duePrincipalPart;
 
-            $entries[] = ['account_id' => $loansReceivableAccount->id, 'credit' => $duePrincipalPart];
-            
-            // ঘ) Credit Entry: ঋণের সুদ (Income) কমানো হচ্ছে
-            $entries[] = ['account_id' => $interestIncomeAccount->id, 'credit' => $dueInterestPart];
+                $loansReceivableAccount = Account::where('code', '1110')->firstOrFail();
+                $interestIncomeAccount = Account::where('code', '4010')->firstOrFail();
+                $loanGraceAccount = Account::where('code', '5030')->firstOrFail(); // Loan Grace Expense Account
 
-            // অ্যাকাউন্টিং সার্ভিস কল করুন (যদি কোনো লেনদেন থাকে)
-            if (!empty($entries)) {
-                $this->accountingService->createTransaction(
-                    $request->payment_date,
-                    'Loan Pay-off for ' . $loanAccount->member->name,
-                    $entries,
-                    $installment ?? $loanAccount // যদি কোনো পেমেন্ট না থাকে, তাহলে LoanAccount-এর সাথে যুক্ত করুন
-                );
-            }
+                $entries = [];
+
+                // ক) Debit Entry: ক্যাশ/ব্যাংক-এ মোট যে টাকা জমা হচ্ছে
+                if ($finalPayment > 0) {
+                    $entries[] = ['account_id' => $depositAccount->id, 'debit' => $finalPayment];
+                }
+                // খ) Debit Entry: প্রদত্ত ছাড় একটি খরচ
+                if ($graceAmount > 0) {
+                    $entries[] = ['account_id' => $loanGraceAccount->id, 'debit' => $graceAmount];
+                }
+
+                // গ) Credit Entry: ঋণের আসল (Receivable) কমানো হচ্ছে
+                // যদি ছাড় দেওয়া হয়, তাহলে সুদ থেকে আগে বাদ যাবে
+                $interestToClear = min($dueInterestPart, $finalPayment);
+                $principalToClear = $finalPayment - $interestToClear;
+
+                // যা কিছু বাকি থাকলো, তা grace বা আসল থেকে ক্লিয়ার হবে
+                $remainingGrace = $graceAmount - ($dueInterestPart - $interestToClear);
+                if ($remainingGrace > 0) {
+                    $principalToClear += $remainingGrace;
+                }
+
+                $entries[] = ['account_id' => $loansReceivableAccount->id, 'credit' => $duePrincipalPart];
+
+                // ঘ) Credit Entry: ঋণের সুদ (Income) কমানো হচ্ছে
+                $entries[] = ['account_id' => $interestIncomeAccount->id, 'credit' => $dueInterestPart];
+
+                // অ্যাকাউন্টিং সার্ভিস কল করুন (যদি কোনো লেনদেন থাকে)
+                if (! empty($entries)) {
+                    $this->accountingService->createTransaction(
+                        $request->payment_date,
+                        'Loan Pay-off for '.$loanAccount->member->name,
+                        $entries,
+                        $installment ?? $loanAccount // যদি কোনো পেমেন্ট না থাকে, তাহলে LoanAccount-এর সাথে যুক্ত করুন
+                    );
+                }
 
                 // --- ধাপ ৩: ঋণের মূল অ্যাকাউন্টের স্ট্যাটাস এবং পরিশোধিত অর্থ আপডেট করুন ---
                 // $loanAccount->update([
@@ -627,12 +738,13 @@ class LoanAccountController extends Controller
                 $loanAccount->save();
             });
         } catch (\Exception $e) {
-            return redirect()->route('loan_accounts.show', $loanAccount->id)->with('error', 'An error occurred: ' . $e->getMessage());
+            return redirect()->route('loan_accounts.show', $loanAccount->id)->with('error', 'An error occurred: '.$e->getMessage());
         }
 
         return redirect()->route('loan_accounts.show', $loanAccount->id)
             ->with('success', 'Loan has been successfully paid off.');
     }
+
     /**
      * Show the form for editing the specified resource.
      * ঋণ অ্যাকাউন্ট সম্পাদনা করার ফর্ম দেখাবে।
@@ -640,13 +752,13 @@ class LoanAccountController extends Controller
     public function edit(LoanAccount $loanAccount)
     {
         // নিরাপত্তা যাচাই: শুধুমাত্র অ্যাডমিন
-        if (!Auth::user()->hasRole('Admin')) {
+        if (! Auth::user()->hasRole('Admin')) {
             abort(403, 'UNAUTHORIZED ACTION.');
         }
-        if ($loanAccount->status !== 'running') {
-            return redirect()->route('loan_accounts.show', $loanAccount->id)
-                ->with('error', 'This loan account cannot be edited because it is already ' . $loanAccount->status . '.');
-        }
+        // if ($loanAccount->status !== 'running') {
+        //     return redirect()->route('loan_accounts.show', $loanAccount->id)
+        //         ->with('error', 'This loan account cannot be edited because it is already ' . $loanAccount->status . '.');
+        // }
         $guarantors = Member::where('id', '!=', $loanAccount->member->id)->where('status', 'active')->get();
         $accounts = Account::active()->payment()->orderBy('name')->get();
 
@@ -662,7 +774,7 @@ class LoanAccountController extends Controller
     public function update(Request $request, LoanAccount $loanAccount)
     {
         // নিরাপত্তা যাচাই: শুধুমাত্র অ্যাডমিন
-        if (!Auth::user()->hasRole('Admin')) {
+        if (! Auth::user()->hasRole('Admin')) {
             abort(403, 'UNAUTHORIZED ACTION.');
         }
 
@@ -678,7 +790,7 @@ class LoanAccountController extends Controller
             'member_guarantor_id' => [
                 Rule::requiredIf($request->guarantor_type == 'member'),
                 'nullable',
-                'exists:members,id'
+                'exists:members,id',
             ],
 
             // বাইরের জামিনদারের জন্য শর্ত
@@ -686,17 +798,16 @@ class LoanAccountController extends Controller
                 Rule::requiredIf($request->guarantor_type == 'outsider'),
                 'nullable',
                 'string',
-                'max:255'
+                'max:255',
             ],
             'outsider_phone' => [
                 'nullable',
                 'string',
-
-                'max:20'
+                'max:20',
             ],
             'outsider_address' => [
                 'nullable',
-                'string'
+                'string',
             ],
             'guarantor_nid' => 'nullable|image|max:2048',
             'guarantor_documents.*' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:2048',
@@ -704,7 +815,6 @@ class LoanAccountController extends Controller
             'loan_documents.*' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:2048',
             'existing_documents_to_delete' => 'nullable|array',
         ]);
-
 
         try {
             DB::transaction(function () use ($request, $loanAccount) {
@@ -742,7 +852,7 @@ class LoanAccountController extends Controller
                     'installment_frequency' => $request->installment_frequency,
                     'total_payable' => $newTotalPayable,
                     'installment_amount' => $newInstallmentAmount,
-                    'next_due_date' => \App\Helpers\DateHelper::calculateNextDueDate($disbursementDate, $request->installment_frequency, $loanAccount),
+                    'next_due_date' => \App\Helpers\DateHelper::calculateNextDueDate($disbursementDate, $request->installment_frequency, $loanAccount->next_due_date),
                 ]);
 
                 // =============================================================
@@ -754,7 +864,7 @@ class LoanAccountController extends Controller
                 $loansReceivableAccount = Account::where('code', '1110')->firstOrFail();
                 $this->accountingService->createTransaction(
                     $disbursementDate,
-                    'Loan disbursed to ' . $loanAccount->member->name . ' (Updated)',
+                    'Loan disbursed to '.$loanAccount->member->name.' (Updated)',
                     [['account_id' => $loansReceivableAccount->id, 'debit' => $newLoanAmount], ['account_id' => $disbursementAccount->id, 'credit' => $newLoanAmount]],
                     $loanAccount
                 );
@@ -764,7 +874,7 @@ class LoanAccountController extends Controller
                     $feeIncomeAccount = Account::where('code', '4020')->firstOrFail();
                     $this->accountingService->createTransaction(
                         $disbursementDate,
-                        'Processing fee from ' . $loanAccount->member->name . ' (Updated)',
+                        'Processing fee from '.$loanAccount->member->name.' (Updated)',
                         [['account_id' => $disbursementAccount->id, 'debit' => $newProcessingFee], ['account_id' => $feeIncomeAccount->id, 'credit' => $newProcessingFee]],
                         $loanAccount
                     );
@@ -798,7 +908,9 @@ class LoanAccountController extends Controller
                 if ($request->filled('existing_documents_to_delete')) {
                     foreach ($request->existing_documents_to_delete as $mediaId) {
                         $mediaItem = $loanAccount->getMedia('loan_documents')->find($mediaId);
-                        if ($mediaItem) $mediaItem->delete();
+                        if ($mediaItem) {
+                            $mediaItem->delete();
+                        }
                     }
                 }
                 if ($request->hasFile('loan_documents')) {
@@ -811,7 +923,7 @@ class LoanAccountController extends Controller
             });
         } catch (\Exception $e) {
 
-            return back()->with('error', 'An error occurred during update: ' . $e->getMessage())->withInput();
+            return back()->with('error', 'An error occurred during update: '.$e->getMessage())->withInput();
         }
 
         return redirect()->route('loan_accounts.show', $loanAccount->id)->with('success', 'Loan account updated successfully.');
@@ -843,9 +955,15 @@ class LoanAccountController extends Controller
         $lastInstallment = $loanAccount->installments()->latest('payment_date')->first();
         $dateToUse = $lastInstallment ? Carbon::parse($lastInstallment->payment_date) : $baseDate;
 
-        if ($frequency == 'daily') return $dateToUse->addDay();
-        if ($frequency == 'weekly') return $dateToUse->addWeek();
-        if ($frequency == 'monthly') return $dateToUse->addMonth();
+        if ($frequency == 'daily') {
+            return $dateToUse->addDay();
+        }
+        if ($frequency == 'weekly') {
+            return $dateToUse->addWeek();
+        }
+        if ($frequency == 'monthly') {
+            return $dateToUse->addMonth();
+        }
 
         return $baseDate->addMonth(); // Default
     }
@@ -884,37 +1002,34 @@ class LoanAccountController extends Controller
 
     public function destroy(LoanAccount $loanAccount)
     {
-       
-        if (!Auth::user()->hasRole('Admin')) {
+
+        if (! Auth::user()->hasRole('Admin')) {
             abort(403, 'UNAUTHORIZED ACTION.');
         }
 
         try {
             DB::transaction(function () use ($loanAccount) {
 
-               
                 $installments = $loanAccount->installments()->with('transactions.journalEntries.account')->get();
 
                 foreach ($installments as $installment) {
-                   
+
                     foreach ($installment->transactions as $transaction) {
                         $this->reverseTransaction($transaction);
                     }
                 }
 
-        
                 $directTransactions = $loanAccount->transactions()->with('journalEntries.account')->get();
 
                 foreach ($directTransactions as $transaction) {
                     $this->reverseTransaction($transaction);
                 }
 
-            
                 $loanAccount->delete();
             });
         } catch (\Exception $e) {
             return redirect()->route('loan_accounts.index')
-                ->with('error', 'Failed to delete the loan account: ' . $e->getMessage());
+                ->with('error', 'Failed to delete the loan account: '.$e->getMessage());
         }
 
         return redirect()->route('loan_accounts.index')->with('success', 'Loan account and all associated transactions have been deleted. Balances are restored.');

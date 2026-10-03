@@ -10,20 +10,24 @@ class SavingsAccountObserver
         try {
             DB::transaction(function () use ($savingsAccount) {
 
+            
                 foreach ($savingsAccount->collections()->get() as $collection) {
                     $collection->delete();
                 }
 
-                foreach ($savingsAccount->withdrawals()->get() as $withdrawal) {
-                    $withdrawal->delete();
+                
+                foreach ($savingsAccount->transactions as $transaction) {
+                    $transaction->delete();
                 }
 
+               
                 $savingsAccount->clearMediaCollection('nominee_photo');
 
             });
         } catch (\Exception $e) {
+           
             \Log::error("Error deleting savings account (ID: {$savingsAccount->id}): " . $e->getMessage());
-            throw $e;
+             throw $e;
         }
     }
 }

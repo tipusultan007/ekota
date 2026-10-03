@@ -14,10 +14,12 @@ class LoanAccountObserver
         try {
             DB::transaction(function () use ($loanAccount) {
         
-                $loanAccount->installments()->delete();
+                foreach ($loanAccount->installments as $installment) {
+                    $installment->delete();
+                }
                 
-                if ($loanAccount->guarantor) {
-                    $loanAccount->guarantor->delete();
+                foreach ($loanAccount->transactions as $transaction) {
+                    $transaction->delete();
                 }
 
                 $loanAccount->clearMediaCollection('loan_documents');

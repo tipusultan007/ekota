@@ -22,7 +22,7 @@
  <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
     <!-- End fonts -->
 
   <!-- CSRF Token -->
@@ -44,6 +44,16 @@
   <!-- CSS for RTL layout-->
   <!-- @vite(['resources/rtl-css/app-rtl.css', 'resources/rtl-css/custom-rtl.css']) -->
     <link rel="stylesheet" href="{{ asset('css/custom.css') }}">
+
+    <!-- PWA Meta Tags -->
+    <meta name="theme-color" content="#4f46e5">
+    <link rel="manifest" href="{{ asset('manifest.json') }}">
+    
+    <!-- iOS support -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Ekota">
+    <link rel="apple-touch-icon" href="{{ asset('icons/icon-192x192.png') }}">
 
   @stack('style')
 </head>
@@ -90,5 +100,17 @@
 
     @stack('custom-scripts')
     <script src="{{ asset('build/plugins/bootstrap/bootstrap.bundle.min.js') }}"></script>
+    <script>
+        // Service Worker Registration
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js').then(registration => {
+                    console.log('SW registered: ', registration);
+                }).catch(registrationError => {
+                    console.log('SW registration failed: ', registrationError);
+                });
+            });
+        }
+    </script>
 </body>
 </html>

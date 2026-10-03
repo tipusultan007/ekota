@@ -6,12 +6,18 @@
       <img src="{{ url('build/images/logo-mini-dark.png') }}" class="logo-mini logo-mini-dark" alt="logo">
     </div>
 
-    <form class="search-form">
+    <form class="search-form position-relative" onsubmit="return false;">
       <div class="input-group">
         <div class="input-group-text">
           <i data-lucide="search"></i>
         </div>
-        <input type="text" class="form-control" id="navbarForm" placeholder="Search here...">
+        <input type="text" class="form-control" id="navbarForm" placeholder="{{ __('messages.search_members_by_name_or_acc') ?? 'Search members by name or account...' }}" autocomplete="off">
+      </div>
+      <div id="search-results-container" class="search-results-dropdown shadow-lg d-none">
+        <div class="search-results-loader d-none p-3 text-center">
+            <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
+        </div>
+        <div id="search-results-list"></div>
       </div>
     </form>
 
@@ -27,6 +33,12 @@
             </div>
           </div>
         </label>
+      </li>
+      <li class="nav-item d-none" id="pwa-install-item">
+        <a class="nav-link d-flex align-items-center text-primary fw-bold" href="javascript:;" id="pwa-install-btn">
+          <i data-lucide="download-cloud" class="me-1"></i>
+          <span>Install App</span>
+        </a>
       </li>
         {{-- Language Dropdown --}}
         <li class="nav-item dropdown">
@@ -173,3 +185,88 @@
 
   </div>
 </nav>
+@push('custom-scripts')
+<script>
+$(document).ready(function() {
+    const $input = $('#navbarForm');
+    const $resultsContainer = $('#search-results-container');
+    const $resultsList = $('#search-results-list');
+    const $loader = $('.search-results-loader');
+    let searchTimeout = null;
+
+    $input.on('keyup focus', function(e) {
+        const query = $(this).val().trim();
+        
+        if (query.length < 2) {
+            $resultsContainer.addClass('d-none');
+            return;
+        }
+
+        if (e.type === 'focus' && $resultsList.children().length > 0) {
+            $resultsContainer.removeClass('d-none');
+            return;
+        }
+
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(function() {
+            fetchResults(query);
+        }, 300);
+    });
+
+    $(document).on('click', function(e) {
+        if (!$(e.target).closest('.search-form').length) {
+            $resultsContainer.addClass('d-none');
+        }
+    });
+
+    function fetchResults(query) {
+        $resultsContainer.removeClass('d-none');
+        $loader.removeClass('d-none');
+        $resultsList.addClass('d-none');
+
+        $.ajax({
+            url: "{{ route('members.search') }}",
+            method: 'GET',
+            data: { term: query },
+            success: function(data) {
+                renderResults(data);
+            },
+            complete: function() {
+                $loader.addClass('d-none');
+                $resultsList.removeClass('d-none');
+            }
+        });
+    }
+
+    function renderResults(members) {
+        $resultsList.empty();
+
+        if (members.length === 0) {
+            $resultsList.append('<div class="search-results-no-data">No results found for your search.</div>');
+            return;
+        }
+
+        members.forEach(member => {
+            const $item = $(`
+                <a href="${member.profile_url}" class="search-result-item">
+                    <img src="${member.photo_url}" class="search-result-photo" alt="${member.name}">
+                    <div class="search-result-info">
+                        <span class="search-result-name">${member.name}</span>
+                        <div class="search-result-meta">
+                            <span><i data-lucide="hash" style="width:12px; height:12px; margin-right:3px;"></i>${member.account_no}</span>
+                            <span><i data-lucide="phone" style="width:12px; height:12px; margin-right:3px;"></i>${member.mobile_no || 'N/A'}</span>
+                        </div>
+                    </div>
+                </a>
+            `);
+            $resultsList.append($item);
+        });
+        
+        // Re-initialize Lucide icons for new elements
+        if (window.lucide) {
+            lucide.createIcons();
+        }
+    }
+});
+</script>
+@endpush

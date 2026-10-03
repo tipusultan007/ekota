@@ -1,16 +1,16 @@
 <?php
+
 namespace App\Http\Controllers;
 
 use App\Helpers\DateHelper;
 use App\Models\Account;
-use App\Models\LoanAccount;
+use App\Models\Collection;
 use App\Models\LoanInstallment;
-use App\Models\SavingsAccount;
-use App\Models\SavingsCollection;
-use Carbon\Carbon;
-use Illuminate\Http\Request;
 use App\Models\Member;
+use App\Models\SavingsCollection;
+use App\Models\User;
 use App\Services\AccountingService;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
@@ -23,6 +23,7 @@ class CollectionController extends Controller
     {
         $this->accountingService = $accountingService;
     }
+
     /**
      * সমন্বিত কালেকশন ফর্মটি দেখানোর জন্য।
      */
@@ -36,127 +37,150 @@ class CollectionController extends Controller
             $membersQuery->whereIn('area_id', $areaIds);
         }
 
-        $members = $membersQuery->orderBy('name')->get();
-        $accounts = Account::active()->payment()->orderBy('name')->get();
+        $members = $membersQuery->orderBy('name')->get()->map(function ($member) {
+            return [
+                'id' => $member->id,
+                'name' => $member->name.' - '.($member->account_no),
+            ];
+        });
+        $accounts = Account::active()->payment()->orderBy('id')->get();
 
+        $collectors = User::where('status', 'active');
+        if (! $user->hasRole('Admin')) {
+            $collectors->where('id', $user->id);
+        }
+        $collectors = $collectors->orderBy('name')->get();
 
-        return view('collections.create', compact('members', 'accounts'));
+        return view('collections.create', compact('members', 'accounts', 'collectors'));
     }
 
-      public function getTodaySavings()
+    public function getTodayCollections()
     {
         $user = Auth::user();
-        $query = SavingsCollection::with('member')->whereDate('collection_date', today());
-        if ($user->hasRole('Field Worker')) {
-            $query->where('collector_id', $user->id);
-        }
-        $collections = $query->latest()->get();
 
-        // ডেটার উপর লুপ চালিয়ে প্রতিটি আইটেমের জন্য Blade ভিউ রেন্ডার করুন
-        $html = '';
-        if ($collections->isNotEmpty()) {
-            foreach ($collections as $item) {
-                $html .= view('collections.partials._savings_row', compact('item'))->render();
+        $savingsQuery = SavingsCollection::with(['member', 'collector', 'savingsAccount'])->whereDate('collection_date', today());
+        $loansQuery = LoanInstallment::with(['member', 'collector', 'loanAccount'])->whereDate('payment_date', today());
+
+        // Strict filtering: Everyone except Admin sees only their own collections
+        if (! $user->hasRole('Admin')) {
+            $savingsQuery->where('collector_id', $user->id);
+            $loansQuery->where('collector_id', $user->id);
+        }
+
+        $savings = $savingsQuery->latest()->get()->map(function ($item) {
+            $item->type = 'savings';
+            $item->date = $item->collection_date;
+
+            return $item;
+        });
+
+        $loans = $loansQuery->latest()->get()->map(function ($item) {
+            $item->type = 'loan';
+            $item->date = $item->payment_date;
+
+            return $item;
+        });
+
+        $savingsHtml = '';
+        if ($savings->isNotEmpty()) {
+            foreach ($savings as $item) {
+                $savingsHtml .= view('collections.partials._savings_row', compact('item'))->render();
             }
         } else {
-            $colspan = $user->hasRole('Admin') ? 4 : 3;
-            $html = '<tr><td colspan="' . $colspan . '" class="text-center">No savings collected today.</td></tr>';
+            $colspan = Auth::user()->hasRole('Admin') ? 5 : 4;
+            $savingsHtml = '<tr><td colspan="'.$colspan.'" class="text-center py-4 text-muted">No savings collections recorded today.</td></tr>';
         }
 
-        return response()->json(['html' => $html]);
-    }
-
-    public function getTodayLoans()
-    {
-        $user = Auth::user();
-        $query = LoanInstallment::with('member')->whereDate('payment_date', today());
-        if ($user->hasRole('Field Worker')) {
-            $query->where('collector_id', $user->id);
-        }
-        $installments = $query->latest()->get();
-
-        $html = '';
-        if ($installments->isNotEmpty()) {
-            foreach ($installments as $item) {
-                $html .= view('collections.partials._loan_row', compact('item'))->render();
+        $loansHtml = '';
+        if ($loans->isNotEmpty()) {
+            foreach ($loans as $item) {
+                $loansHtml .= view('collections.partials._loan_row', compact('item'))->render();
             }
         } else {
-            $colspan = $user->hasRole('Admin') ? 4 : 3;
-            $html = '<tr><td colspan="' . $colspan . '" class="text-center">No loan installments collected today.</td></tr>';
+            $colspan = Auth::user()->hasRole('Admin') ? 7 : 6;
+            $loansHtml = '<tr><td colspan="'.$colspan.'" class="text-center py-4 text-muted">No loan installments recorded today.</td></tr>';
         }
 
-        return response()->json(['html' => $html]);
+        return response()->json([
+            'savings_html' => $savingsHtml,
+            'loans_html' => $loansHtml,
+        ]);
     }
 
     public function store(Request $request)
     {
-
-
         $request->validate([
             'member_id' => 'required|exists:members,id',
             'date' => 'required|date',
             'account_id' => 'required|exists:accounts,id',
-
-            // প্রতিটি ফিল্ড এখন nullable, কিন্তু required_with ব্যবহার করে শর্ত যোগ করা হয়েছে
-            'savings_account_id' => 'nullable|exists:savings_accounts,id|required_with:amount',
-            'amount' => 'nullable|numeric|min:1|required_with:savings_account_id',
-
-            'loan_account_id' => 'nullable|exists:loan_accounts,id|required_with:loan_installment',
-            'loan_installment' => 'nullable|numeric|min:1|required_with:loan_account_id',
+            'amount' => 'nullable|numeric|min:0',
+            'loan_installment' => 'nullable|numeric|min:0',
+            'grace_amount' => 'nullable|numeric|min:0',
             'notes' => 'nullable|string',
+            'collector_id' => 'nullable|exists:users,id',
         ]);
 
-        if (!$request->filled('amount') && !$request->filled('loan_installment')) {
-             if ($request->ajax()) {
-            return response()->json(['success' => false, 'message' => 'You must enter an amount for either savings or loan installment.'], 422);
-        }
-            return back()
-                ->with('error', 'You must enter an amount for either savings or loan installment.')
-                ->withInput();
+        if (! $request->filled('amount') && ! $request->filled('loan_installment')) {
+            if ($request->ajax()) {
+                return response()->json(['success' => false, 'message' => 'You must enter an amount for savings or loan installment.'], 422);
+            }
+
+            return back()->with('error', 'You must enter an amount for savings or loan installment.')->withInput();
         }
 
         $member = Member::findOrFail($request->member_id);
         $depositAccount = Account::findOrFail($request->account_id);
 
-        // নিরাপত্তা যাচাই
+        // Security Check
         $this->authorizeAccess($member);
 
-        try {
-            // সকল অপারেশনের জন্য একটি মাত্র ট্রানজেকশন
-            DB::transaction(function () use ($request, $member, $depositAccount) {
+        $collectorId = Auth::id();
+        if (Auth::user()->hasRole('Admin') && $request->filled('collector_id')) {
+            $collectorId = $request->collector_id;
+        }
 
-                // --- সঞ্চয় আদায় প্রক্রিয়া ---
-                if ($request->filled('savings_account_id') && $request->filled('amount')) {
-                    $savingsAccount = SavingsAccount::findOrFail($request->savings_account_id);
+        // Find associated accounts
+        $savingsAccount = $member->savingsAccounts()->where('status', 'active')->first();
+
+        // Prioritize loan_account_id if provided in the request
+        if ($request->filled('loan_account_id')) {
+            $loanAccount = $member->loanAccounts()->find($request->loan_account_id);
+        } else {
+            $loanAccount = $member->loanAccounts()->where('status', 'running')->latest()->first();
+        }
+
+        if ($request->filled('loan_installment') && $request->loan_installment > 0 && ! $loanAccount) {
+            if ($request->ajax()) {
+                return response()->json(['success' => false, 'message' => 'No active loan account found for this member.'], 422);
+            }
+
+            return back()->with('error', 'No active loan account found for this member.')->withInput();
+        }
+
+        try {
+            DB::transaction(function () use ($request, $member, $depositAccount, $savingsAccount, $loanAccount, $collectorId) {
+                // --- Process Savings Deposit ---
+                if ($savingsAccount && $request->filled('amount') && $request->amount > 0) {
                     $savingsAmount = $request->amount;
 
-                    $collection = SavingsCollection::create([
+                    $savingsCol = SavingsCollection::create([
                         'savings_account_id' => $savingsAccount->id,
                         'member_id' => $member->id,
-                        'collector_id' => Auth::id(),
+                        'collector_id' => $collectorId,
                         'amount' => $savingsAmount,
                         'collection_date' => $request->date,
                         'notes' => $request->notes,
                     ]);
 
-                    // $collection->transactions()->create([
-                    //     'account_id' => $depositAccount->id,
-                    //     'type' => 'credit',
-                    //     'amount' => $savingsAmount,
-                    //     'description' => 'Savings deposit for ' . $member->name,
-                    //     'transaction_date' => $request->date,
-                    // ]);
-
                     $this->accountingService->createTransaction(
-                        $request->date, 'Savings deposit from ' . $member->name,
-                        [ // entries array
+                        $request->date, 'Savings deposit from '.$member->name,
+                        [
                             ['account_id' => $depositAccount->id, 'debit' => $savingsAmount],
                             ['account_id' => Account::where('code', '2010')->first()->id, 'credit' => $savingsAmount],
                         ],
-                        $collection
+                        $savingsCol
                     );
 
-                  //  $depositAccount->increment('balance', $savingsAmount);
                     $savingsAccount->increment('current_balance', $savingsAmount);
 
                     $savingsAccount->next_due_date = DateHelper::calculateNextDueDate(
@@ -167,57 +191,58 @@ class CollectionController extends Controller
                     $savingsAccount->save();
                 }
 
-                // --- ঋণ কিস্তি আদায় প্রক্রিয়া ---
-                if ($request->filled('loan_account_id') && $request->filled('loan_installment')) {
-                    $loanAccount = LoanAccount::findOrFail($request->loan_account_id);
+                // --- Process Loan Installment ---
+                if ($loanAccount && $request->filled('loan_installment') && $request->loan_installment > 0) {
                     $paidAmount = $request->loan_installment;
+                    $graceAmount = $request->grace_amount ?? 0;
+                    $dueAmount = $loanAccount->total_payable - $loanAccount->total_paid - $loanAccount->grace_amount;
 
-                    if (($loanAccount->total_paid + $paidAmount) > $loanAccount->total_payable) {
-                        // ট্রানজেকশন ব্যর্থ করার জন্য একটি Exception থ্রো করুন
-                        throw new \Exception('Paid amount cannot be greater than the remaining due for loan account ' . $loanAccount->account_no);
+                    if (($paidAmount + $graceAmount) > $dueAmount) {
+                        throw new \Exception('Paid amount + Grace cannot be greater than the remaining due for loan account '.$loanAccount->account_no);
                     }
 
-                    $lastInstallment = $loanAccount->installments()->latest()->first();
                     $installment = LoanInstallment::create([
                         'loan_account_id' => $loanAccount->id,
                         'member_id' => $member->id,
-                        'collector_id' => Auth::id(),
-                        'installment_no' => $lastInstallment ? $lastInstallment->installment_no + 1 : 1,
+                        'collector_id' => $collectorId,
+                        'installment_no' => ($loanAccount->installments()->count() + 1),
                         'paid_amount' => $paidAmount,
+                        'grace_amount' => $graceAmount,
                         'payment_date' => $request->date,
                         'notes' => $request->notes,
                     ]);
 
-                    // $installment->transactions()->create([
-                    //     'account_id' => $depositAccount->id,
-                    //     'type' => 'credit',
-                    //     'amount' => $paidAmount,
-                    //     'description' => 'Loan installment from ' . $member->name,
-                    //     'transaction_date' => $request->date,
-                    // ]);
+                    $principalPart = ($paidAmount + $graceAmount) * ($loanAccount->loan_amount / $loanAccount->total_payable);
+                    $interestPart = ($paidAmount + $graceAmount) - $principalPart;
 
-                    $principalPart = $paidAmount * ($loanAccount->loan_amount / $loanAccount->total_payable);
-                    $interestPart = $paidAmount - $principalPart;
+                    $entries = [];
+                    if ($paidAmount > 0) {
+                        $entries[] = ['account_id' => $depositAccount->id, 'debit' => $paidAmount];
+                    }
+                    if ($graceAmount > 0) {
+                        $loanGraceAccount = Account::where('code', '5030')->firstOrFail();
+                        $entries[] = ['account_id' => $loanGraceAccount->id, 'debit' => $graceAmount];
+                    }
+                    if ($principalPart > 0) {
+                        $entries[] = ['account_id' => Account::where('code', '1110')->first()->id, 'credit' => $principalPart];
+                    }
+                    if ($interestPart > 0) {
+                        $entries[] = ['account_id' => Account::where('code', '4010')->first()->id, 'credit' => $interestPart];
+                    }
 
-                    $this->accountingService->createTransaction(
-                        $request->date,
-                        'Loan installment received from ' . $member->name,
-                        [
-                            // Debit Entry:
-                            ['account_id' => $depositAccount->id, 'debit' => $paidAmount],
+                    if (! empty($entries)) {
+                        $this->accountingService->createTransaction(
+                            $request->date,
+                            'Loan installment from '.$member->name,
+                            $entries,
+                            $installment
+                        );
+                    }
 
-                            // Credit Entries:
-                            ['account_id' => Account::where('code', '1110')->first()->id, 'credit' => $principalPart],
-                            ['account_id' => Account::where('code', '4010')->first()->id, 'credit' => $interestPart],
-                        ],
-                        $installment
-                    );
-
-
-                    //$depositAccount->increment('balance', $paidAmount);
                     $loanAccount->increment('total_paid', $paidAmount);
+                    $loanAccount->increment('grace_amount', $graceAmount);
 
-                    if ($loanAccount->total_paid >= $loanAccount->total_payable) {
+                    if ($loanAccount->total_paid + $loanAccount->grace_amount >= $loanAccount->total_payable) {
                         $loanAccount->status = 'paid';
                     }
 
@@ -229,23 +254,24 @@ class CollectionController extends Controller
 
                     $loanAccount->save();
                 }
-
             });
         } catch (\Exception $e) {
-             if ($request->ajax()) {
-            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
-        }
-            return redirect()->back()->with('error', 'An error occurred: ' . $e->getMessage())->withInput();
-        }
-        if ($request->ajax()) {
-                return response()->json([
-                    'success' => true,
-                    'message' => 'Collection(s) recorded successfully.',
-                ]);
+            if ($request->ajax()) {
+                return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
             }
+
+            return redirect()->back()->with('error', 'An error occurred: '.$e->getMessage())->withInput();
+        }
+
+        if ($request->ajax()) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Collection(s) recorded successfully.',
+            ]);
+        }
+
         return redirect()->back()->with('success', 'Collection(s) recorded successfully.');
     }
-
 
     private function authorizeAccess(Member $member)
     {
@@ -257,11 +283,12 @@ class CollectionController extends Controller
 
         if ($user->hasRole('Field Worker')) {
             $allowedAreaIds = $user->areas()->pluck('areas.id')->toArray();
-            if (!in_array($member->area_id, $allowedAreaIds)) {
+            if (! in_array($member->area_id, $allowedAreaIds)) {
                 abort(403, 'UNAUTHORIZED ACTION. You do not have permission to access members from this area.');
             }
         }
     }
+
     /**
      * API: একজন নির্দিষ্ট সদস্যের সকল সক্রিয় সঞ্চয় ও ঋণ অ্যাকাউন্ট প্রদান করবে।
      */
@@ -270,6 +297,7 @@ class CollectionController extends Controller
         $memberDetails = [
             'name' => $member->name,
             'phone' => $member->mobile_no,
+            'account_no' => $member->account_no,
             'address' => $member->address,
             'photo_url' => $member->getFirstMediaUrl('member_photo', 'thumb') ?: 'https://placehold.co/80x80',
         ];
@@ -283,5 +311,177 @@ class CollectionController extends Controller
             'savings' => $savingsAccounts,
             'loans' => $loanAccounts,
         ]);
+    }
+
+    public function edit(Collection $collection)
+    {
+        return view('collections.edit', compact('collection'));
+    }
+
+    public function update(Request $request, Collection $collection)
+    {
+        $request->validate([
+            'date' => 'required|date',
+            'amount' => 'nullable|numeric|min:0',
+            'loan_installment' => 'nullable|numeric|min:0',
+            'grace_amount' => 'nullable|numeric|min:0',
+            'notes' => 'nullable|string',
+            'account_id' => 'required|exists:accounts,id',
+        ]);
+
+        try {
+            DB::transaction(function () use ($request, $collection) {
+                // 1. Revert Old Effects
+                $member = $collection->member;
+                $savingsAccount = $member->savingsAccounts()->where('status', 'active')->first();
+                $loanAccount = $member->loanAccounts()->where('status', 'running')->first();
+
+                // Revert Withdrawal (if legacy)
+                if ($collection->withdraw > 0 && $savingsAccount) {
+                    $savingsAccount->increment('current_balance', $collection->withdraw);
+                }
+
+                // Revert Deposit
+                if ($collection->deposit > 0 && $savingsAccount) {
+                    $savingsAccount->decrement('current_balance', $collection->deposit);
+                }
+
+                // Revert Loan
+                if ($collection->loan_installment > 0 && $loanAccount) {
+                    $loanAccount->decrement('total_paid', $collection->loan_installment);
+                    if ($collection->grace_amount > 0) {
+                        $loanAccount->decrement('grace_amount', $collection->grace_amount);
+                    }
+                    if ($loanAccount->status == 'paid') {
+                        $loanAccount->status = 'running';
+                    }
+                    $loanAccount->save();
+                }
+
+                // Delete Old Accounting Transactions linked to this Collection
+                foreach ($collection->transactions as $transaction) {
+                    $transaction->delete();
+                }
+
+                // 2. Instead of updating Collection, we CREATE separate records (Transitioning)
+                $depositAccount = Account::findOrFail($request->account_id);
+
+                // Create Savings Collection if deposit > 0
+                if ($request->amount > 0 && $savingsAccount) {
+                    $savingsAmount = $request->amount;
+                    $sCol = SavingsCollection::create([
+                        'savings_account_id' => $savingsAccount->id,
+                        'member_id' => $member->id,
+                        'collector_id' => $collection->user_id, // Keep original collector
+                        'amount' => $savingsAmount,
+                        'collection_date' => $request->date,
+                        'notes' => $request->notes,
+                    ]);
+
+                    $this->accountingService->createTransaction(
+                        $request->date, 'Savings deposit from '.$member->name.' (Migrated from legacy)',
+                        [
+                            ['account_id' => $depositAccount->id, 'debit' => $savingsAmount],
+                            ['account_id' => Account::where('code', '2010')->first()->id, 'credit' => $savingsAmount],
+                        ],
+                        $sCol
+                    );
+                    $savingsAccount->increment('current_balance', $savingsAmount);
+                    $savingsAccount->save();
+                }
+
+                // Create Loan Installment if installment > 0
+                if ($request->loan_installment > 0 && $loanAccount) {
+                    $paidAmount = $request->loan_installment;
+                    $graceAmount = $request->grace_amount ?? 0;
+
+                    $installment = LoanInstallment::create([
+                        'loan_account_id' => $loanAccount->id,
+                        'member_id' => $member->id,
+                        'collector_id' => $collection->user_id,
+                        'installment_no' => ($loanAccount->installments()->count() + 1),
+                        'paid_amount' => $paidAmount,
+                        'grace_amount' => $graceAmount,
+                        'payment_date' => $request->date,
+                        'notes' => $request->notes,
+                    ]);
+
+                    $principalPart = ($paidAmount + $graceAmount) * ($loanAccount->loan_amount / $loanAccount->total_payable);
+                    $interestPart = ($paidAmount + $graceAmount) - $principalPart;
+
+                    $this->accountingService->createTransaction(
+                        $request->date, 'Loan installment from '.$member->name.' (Migrated from legacy)',
+                        [
+                            ['account_id' => $depositAccount->id, 'debit' => $paidAmount],
+                            ['account_id' => Account::where('code', '1110')->first()->id, 'credit' => $principalPart],
+                            ['account_id' => Account::where('code', '4010')->first()->id, 'credit' => $interestPart],
+                        ],
+                        $installment
+                    );
+
+                    $loanAccount->increment('total_paid', $paidAmount);
+                    $loanAccount->increment('grace_amount', $graceAmount);
+                    if ($loanAccount->total_paid + $loanAccount->grace_amount >= $loanAccount->total_payable) {
+                        $loanAccount->status = 'paid';
+                    }
+                    $loanAccount->save();
+                }
+
+                // 3. Delete the legacy Collection record
+                $collection->delete();
+
+            });
+        } catch (\Exception $e) {
+            return redirect()->back()->with('error', 'Update failed: '.$e->getMessage());
+        }
+
+        return redirect()->route('members.show', $collection->member_id)->with('success', 'Collection updated and migrated to separate models successfully.');
+    }
+
+    public function destroy(Collection $collection)
+    {
+        try {
+            DB::transaction(function () use ($collection) {
+                $member = $collection->member;
+                $savingsAccount = $member->savingsAccounts()->where('status', 'active')->first();
+                $loanAccount = $member->loanAccounts()->where('status', 'running')->first();
+
+                // Revert Withdrawal
+                if ($collection->withdraw > 0 && $savingsAccount) {
+                    $savingsAccount->increment('current_balance', $collection->withdraw);
+                }
+
+                // Revert Deposit
+                if ($collection->deposit > 0 && $savingsAccount) {
+                    $savingsAccount->decrement('current_balance', $collection->deposit);
+                }
+
+                // Revert Loan
+                if ($collection->loan_installment > 0 && $loanAccount) {
+                    $loanAccount->decrement('total_paid', $collection->loan_installment);
+                    if ($collection->grace_amount > 0) {
+                        $loanAccount->decrement('grace_amount', $collection->grace_amount);
+                    }
+                    if ($loanAccount->status == 'paid') {
+                        $loanAccount->status = 'running';
+                    }
+                    $loanAccount->save();
+                }
+
+                // Delete Transactions
+                // Check if the relation creates separate Transaction models or just links them.
+                // Assuming we need to delete the specific accounting transactions linked to this collection.
+                // $collection->transactions is a morphMany to Transaction.
+                foreach ($collection->transactions as $transaction) {
+                    $transaction->delete();
+                }
+
+                $collection->delete();
+            });
+        } catch (\Exception $e) {
+            return redirect()->back()->with('error', 'Delete failed: '.$e->getMessage());
+        }
+
+        return redirect()->back()->with('success', 'Collection deleted successfully.');
     }
 }

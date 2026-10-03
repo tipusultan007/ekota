@@ -69,6 +69,11 @@
                                 Expenses <span class="badge bg-warning ms-1">{{ $expenses->count() }}</span>
                             </a>
                         </li>
+                        <li class="nav-item">
+                            <a class="nav-link" id="incomes-tab" data-bs-toggle="tab" href="#incomes" role="tab" aria-controls="incomes" aria-selected="false">
+                                Income <span class="badge bg-success ms-1">{{ $incomes->count() }}</span>
+                            </a>
+                        </li>
                     </ul>
 
                     {{-- ট্যাব কন্টেন্ট --}}
@@ -92,6 +97,11 @@
                         {{-- Expenses Tab --}}
                         <div class="tab-pane fade" id="expenses" role="tabpanel" aria-labelledby="expenses-tab">
                             @include('reports.partials.transaction_table', ['items' => $expenses, 'type' => 'expense'])
+                        </div>
+
+                        {{-- Incomes Tab --}}
+                        <div class="tab-pane fade" id="incomes" role="tabpanel" aria-labelledby="incomes-tab">
+                            @include('reports.partials.transaction_table', ['items' => $incomes, 'type' => 'income'])
                         </div>
                     </div>
                 </div>

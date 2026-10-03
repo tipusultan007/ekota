@@ -63,7 +63,8 @@ class CapitalInvestmentController extends Controller
         } catch (\Exception $e) {
             return back()->with('error', 'An error occurred: ' . $e->getMessage())->withInput();
         }
-        return redirect()->route('admin.capital_investments.index')->with('success', 'Capital investment recorded successfully.');
+
+        return redirect()->route('admin.capital-investments.index')->with('success', 'Capital investment recorded successfully.');
     }
     public function edit(CapitalInvestment $capitalInvestment)
     {
@@ -109,7 +110,7 @@ class CapitalInvestmentController extends Controller
         } catch (\Exception $e) {
             return back()->with('error', 'An error occurred: ' . $e->getMessage())->withInput();
         }
-        return redirect()->route('admin.capital_investments.index')->with('success', 'Investment updated successfully.');
+        return redirect()->route('admin.capital-investments.index')->with('success', 'Investment updated successfully.');
     }
     /**
      * Remove the specified resource from storage.
@@ -131,7 +132,7 @@ class CapitalInvestmentController extends Controller
         } catch (\Exception $e) {
             return back()->with('error', 'An error occurred: ' . $e->getMessage());
         }
-        return redirect()->route('admin.capital_investments.index')->with('success', 'Investment deleted and balances restored.');
+        return redirect()->route('admin.capital-investments.index')->with('success', 'Investment deleted and balances restored.');
     }
 
     // private function reverseTransaction(\App\Models\Transaction $transaction)

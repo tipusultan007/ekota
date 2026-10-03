@@ -4,12 +4,22 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
 use Spatie\MediaLibrary\HasMedia;
 use Spatie\MediaLibrary\InteractsWithMedia;
 
 class LoanAccount extends Model implements HasMedia
 {
-    use HasFactory, InteractsWithMedia;
+    use HasFactory, InteractsWithMedia, LogsActivity;
+
+    public function getActivitylogOptions(): LogOptions
+    {
+        return LogOptions::defaults()
+            ->logFillable()
+            ->logOnlyDirty()
+            ->dontSubmitEmptyLogs();
+    }
 
     /**
      * The attributes that are mass assignable.
@@ -28,7 +38,7 @@ class LoanAccount extends Model implements HasMedia
         'installment_amount',
         'disbursement_date',
         'status',
-        'installment_frequency', 'next_due_date'
+        'installment_frequency', 'next_due_date',
     ];
 
     /**
@@ -79,6 +89,7 @@ class LoanAccount extends Model implements HasMedia
         $this
             ->addMediaCollection('loan_documents'); // একাধিক ফাইল রাখার অনুমতি
     }
+
     public function transactions()
     {
         return $this->morphMany(Transaction::class, 'transactionable');
@@ -88,5 +99,4 @@ class LoanAccount extends Model implements HasMedia
     {
         return $this->total_payable - $this->total_paid - $this->grace_amount;
     }
-
 }

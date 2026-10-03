@@ -66,11 +66,11 @@ class DemoDataSeeder extends Seeder
 
         // --- ২. এলাকা তৈরি ---
         $areas = Area::factory()->count(5)->sequence(
-            ['name' => 'ধানমন্ডি শাখা'],
-            ['name' => 'গুলশান শাখা'],
-            ['name' => 'উত্তরা শাখা'],
-            ['name' => 'চট্টগ্রাম শাখা'],
-            ['name' => 'সিলেট শাখা']
+            ['name' => 'বশির শাহ'],
+            ['name' => 'এ-ব্লক'],
+            ['name' => 'নয়া বাজার'],
+            ['name' => 'বাস স্ট্যান্ড'],
+            ['name' => 'বি-ব্লক']
         )->create();
         $this->command->info('Areas Created.');
 
@@ -102,9 +102,10 @@ class DemoDataSeeder extends Seeder
         $this->accountingService->createTransaction(
             $investment->investment_date,
             'Initial Capital Investment',
-            $investment->amount,
-            $bankAccount->id, // Debit (Asset increases)
-            $capitalAccount->id, // Credit (Equity increases)
+            [ // $entries অ্যারে
+                ['account_id' => $bankAccount->id, 'debit' => $investment->amount],
+                ['account_id' => $capitalAccount->id, 'credit' => $investment->amount],
+            ],
             $investment
         );
         $this->command->info('Initial Capital Invested.');
@@ -122,7 +123,16 @@ class DemoDataSeeder extends Seeder
                 $amount = rand(200, 1000);
                 $date = Carbon::today()->subDays(rand(1, 300));
                 $collection = $savingsAccount->collections()->create(['member_id' => $member->id, 'collector_id' => $fieldWorkers->random()->id, 'amount' => $amount, 'collection_date' => $date]);
-                $this->accountingService->createTransaction($date, 'Savings deposit from ' . $member->name, $amount, $cashAccount->id, $savingsPayableAccount->id, $collection);
+
+                $this->accountingService->createTransaction(
+                    $date,
+                    'Savings deposit from ' . $member->name,
+                    [
+                        ['account_id' => $cashAccount->id, 'debit' => $amount],
+                        ['account_id' => $savingsPayableAccount->id, 'credit' => $amount],
+                    ],
+                    $collection
+                );
             }
 
             // খ) ৩০% সদস্যকে একটি করে ঋণ দিন
@@ -130,11 +140,28 @@ class DemoDataSeeder extends Seeder
                 $loanAccount = LoanAccount::factory()->create(['member_id' => $member->id, 'processing_fee' => 500, 'total_paid' => 0]);
                 Guarantor::factory()->create(['loan_account_id' => $loanAccount->id, 'member_id' => $members->where('id', '!=', $member->id)->random()->id]);
 
-                // ঋণ বিতরণের লেনদেন
-                $this->accountingService->createTransaction($loanAccount->disbursement_date, 'Loan disbursed to ' . $member->name, $loanAccount->loan_amount, $loansReceivableAccount->id, $bankAccount->id, $loanAccount);
+                $this->accountingService->createTransaction(
+                    $loanAccount->disbursement_date,
+                    'Loan disbursed to ' . $member->name,
+                    [
+                        ['account_id' => $loansReceivableAccount->id, 'debit' => $loanAccount->loan_amount],
+                        ['account_id' => $bankAccount->id, 'credit' => $loanAccount->loan_amount],
+                    ],
+                    $loanAccount
+                );
+                // ============================
 
                 // প্রক্রিয়াকরণ ফি আয়
-                $this->accountingService->createTransaction($loanAccount->disbursement_date, 'Processing fee from ' . $member->name, $loanAccount->processing_fee, $bankAccount->id, $feeIncomeAccount->id, $loanAccount);
+                // ======== পরিবর্তন এখানে ========
+                $this->accountingService->createTransaction(
+                    $loanAccount->disbursement_date,
+                    'Processing fee from ' . $member->name,
+                    [
+                        ['account_id' => $bankAccount->id, 'debit' => $loanAccount->processing_fee],
+                        ['account_id' => $feeIncomeAccount->id, 'credit' => $loanAccount->processing_fee],
+                    ],
+                    $loanAccount
+                );
 
                 // কিছু কিস্তি জমা দিন
                 $paidInstallments = rand(1, $loanAccount->number_of_installments / 2);
@@ -147,11 +174,16 @@ class DemoDataSeeder extends Seeder
                     $principalPart = $amount * ($loanAccount->loan_amount / $loanAccount->total_payable);
                     $interestPart = $amount - $principalPart;
 
-                    // আসল পরিশোধের লেনদেন
-                    $this->accountingService->createTransaction($date, 'Loan principal collected', $principalPart, $cashAccount->id, $loansReceivableAccount->id, $installment);
-
-                    // সুদ আয়ের লেনদেন
-                    $this->accountingService->createTransaction($date, 'Interest income collected', $interestPart, $cashAccount->id, $interestIncomeAccount->id, $installment);
+                    $this->accountingService->createTransaction(
+                        $date,
+                        'Loan installment from ' . $member->name,
+                        [
+                            ['account_id' => $cashAccount->id, 'debit' => $amount],
+                            ['account_id' => $loansReceivableAccount->id, 'credit' => $principalPart],
+                            ['account_id' => $interestIncomeAccount->id, 'credit' => $interestPart],
+                        ],
+                        $installment
+                    );
                 }
             }
         });

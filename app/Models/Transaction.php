@@ -4,10 +4,20 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
 
 class Transaction extends Model
 {
-    use HasFactory;
+    use HasFactory, LogsActivity;
+
+    public function getActivitylogOptions(): LogOptions
+    {
+        return LogOptions::defaults()
+            ->logFillable()
+            ->logOnlyDirty()
+            ->dontSubmitEmptyLogs();
+    }
 
     /**
      * The table associated with the model.
@@ -39,8 +49,7 @@ class Transaction extends Model
         'date' => 'date',
     ];
 
-
-      /**
+    /**
      * Get the parent transactionable model (e.g., SavingsCollection, LoanInstallment).
      * এই রিলেশনশিপটি লেনদেনের উৎসকে নির্দেশ করে।
      */
@@ -58,11 +67,11 @@ class Transaction extends Model
         return $this->hasMany(JournalEntry::class);
     }
 
-    
     public function loanAccount()
     {
         return $this->belongsTo(LoanAccount::class);
     }
+
     public function savingsAccount()
     {
         return $this->belongsTo(SavingsAccount::class);

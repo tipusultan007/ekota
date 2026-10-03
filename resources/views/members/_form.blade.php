@@ -23,8 +23,8 @@
             <input type="text" id="spouse_name" name="spouse_name" class="form-control" value="{{ old('spouse_name', $member->spouse_name ?? '') }}">
         </div>
         <div class="col-md-4 mb-3">
-            <label for="date_of_birth" class="form-label">{{ __('messages.date_of_birth') }} <span class="text-danger">*</span></label>
-            <input type="text" id="date_of_birth" name="date_of_birth" class="form-control flatpickr" value="{{ old('date_of_birth', isset($member) ? $member->date_of_birth->format('Y-m-d') : '') }}" required>
+            <label for="date_of_birth" class="form-label">{{ __('messages.date_of_birth') }} </label>
+            <input type="text" id="date_of_birth" name="date_of_birth" class="form-control flatpickr" value="{{ old('date_of_birth', isset($member) ? $member->date_of_birth->format('Y-m-d') : '') }}">
         </div>
         <div class="col-md-4 mb-3">
             <label for="gender" class="form-label">{{ __('messages.gender') }}</label>
@@ -105,6 +105,28 @@
         <div class="col-md-3 mb-3">
             <label for="joining_date" class="form-label">{{ __('messages.joining_date') }} <span class="text-danger">*</span></label>
             <input type="text" id="joining_date" name="joining_date" class="form-control flatpickr" value="{{ old('joining_date', isset($member) ? $member->joining_date->format('Y-m-d') : date('Y-m-d')) }}" required>
+        </div>
+
+        {{-- Nominee fields integrated into additional info --}}
+        <div class="col-md-4 mb-3">
+            <label class="form-label">{{ __('messages.nominee_name') }}</label>
+            <input type="text" name="nominee_name" class="form-control" value="{{ old('nominee_name', $member->nominee_name ?? '') }}">
+        </div>
+        <div class="col-md-4 mb-3">
+            <label class="form-label">{{ __('messages.nominee_phone') }}</label>
+            <input type="text" name="nominee_phone" class="form-control" value="{{ old('nominee_phone', $member->nominee_phone ?? '') }}">
+        </div>
+        <div class="col-md-4 mb-3">
+            <label class="form-label">{{ __('messages.nominee_relation') }}</label>
+            <input type="text" name="nominee_relation" class="form-control" value="{{ old('nominee_relation', $member->nominee_relation ?? '') }}">
+        </div>
+        <div class="col-md-8 mb-3">
+            <label class="form-label">{{ __('messages.nominee_address') }}</label>
+            <input type="text" name="nominee_address" class="form-control" value="{{ old('nominee_address', $member->nominee_address ?? '') }}">
+        </div>
+        <div class="col-md-4 mb-3">
+            <label class="form-label">Nominee NID</label>
+            <input type="text" name="nominee_nid" class="form-control" value="{{ old('nominee_nid', $member->nominee_nid ?? '') }}">
         </div>
     </div>
 </div>

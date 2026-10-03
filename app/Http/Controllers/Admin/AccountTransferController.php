@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\DB;
 
 class AccountTransferController extends Controller
 {
+    use \App\Http\Controllers\Traits\TransactionReversalTrait;
     protected AccountingService $accountingService;
 
     // কন্ট্রোলারে অ্যাকাউন্টিং সার্ভিস ইনজেক্ট করুন
@@ -49,7 +50,7 @@ class AccountTransferController extends Controller
         $amount = $request->amount;
 
         if ($fromAccount->balance < $amount) {
-            return back()->with('error', 'Insufficient balance in the source account.');
+            return back()->with('error', __('messages.insufficient_balance'));
         }
 
         DB::transaction(function () use ($request, $fromAccount, $amount) {
@@ -74,7 +75,7 @@ class AccountTransferController extends Controller
                     $transfer
                 );
             });
-        return redirect()->route('admin.account-transfers.index')->with('success', 'Balance transferred successfully.');
+        return redirect()->route('admin.account-transfers.index')->with('success', __('messages.balance_transferred_successfully'));
     }
 
     public function edit(BalanceTransfer $account_transfer)
@@ -116,7 +117,7 @@ class AccountTransferController extends Controller
                     $account_transfer
                 );
         });
-        return redirect()->route('admin.account-transfers.index')->with('success', 'Transfer updated successfully.');
+        return redirect()->route('admin.account-transfers.index')->with('success', __('messages.transfer_updated_successfully'));
     }
 
     public function destroy(BalanceTransfer $account_transfer)
@@ -131,17 +132,7 @@ class AccountTransferController extends Controller
                 $account_transfer->delete();
         });
 
-        return redirect()->route('admin.account-transfers.index')->with('success', 'Transfer deleted and balances restored.');
+        return redirect()->route('admin.account-transfers.index')->with('success', __('messages.transfer_deleted_successfully'));
     }
 
-      private function reverseTransaction(\App\Models\Transaction $transaction)
-    {
-        foreach($transaction->journalEntries as $entry) {
-            $account = $entry->account;
-            if ($entry->debit > 0) $account->handleCredit($entry->debit);
-            if ($entry->credit > 0) $account->handleDebit($entry->credit);
-        }
-        $transaction->journalEntries()->delete();
-        $transaction->delete();
-    }
 }

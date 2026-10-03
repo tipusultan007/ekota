@@ -5,13 +5,13 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
-use Spatie\Permission\Traits\HasRoles;
 use Spatie\MediaLibrary\HasMedia;
 use Spatie\MediaLibrary\InteractsWithMedia;
+use Spatie\Permission\Traits\HasRoles;
 
 class User extends Authenticatable implements HasMedia // HasMedia যোগ করুন
 {
-    use Notifiable, HasRoles, InteractsWithMedia, HasFactory;
+    use HasFactory, HasRoles, InteractsWithMedia, Notifiable;
 
     // InteractsWithMedia যোগ করুন
 
@@ -27,7 +27,7 @@ class User extends Authenticatable implements HasMedia // HasMedia যোগ ক
         'nid_no',
         'joining_date',
         'status',
-        'salary'
+        'salary',
     ];
 
     /**
@@ -69,5 +69,20 @@ class User extends Authenticatable implements HasMedia // HasMedia যোগ ক
     public function salaries()
     {
         return $this->hasMany(Salary::class);
+    }
+
+    public function loanInstallments()
+    {
+        return $this->hasMany(LoanInstallment::class, 'collector_id');
+    }
+
+    public function savingsCollections()
+    {
+        return $this->hasMany(SavingsCollection::class, 'collector_id');
+    }
+
+    public function savingsWithdrawals()
+    {
+        return $this->hasMany(SavingsWithdrawal::class, 'processed_by_user_id');
     }
 }

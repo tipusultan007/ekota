@@ -163,6 +163,47 @@
         .card-gradient-danger .card-title {
             color: rgba(255, 255, 255, 0.9);
         }
+
+        /* Inline Collection Styles */
+        .due-list-item {
+            border-bottom: 1px solid #f1f1f1;
+            padding: 8px 12px;
+            transition: all 0.3s ease;
+        }
+        .due-list-item:hover {
+            background-color: #fcfcfc;
+        }
+        .collection-input-group {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: nowrap;
+        }
+        .collection-input {
+            width: 80px;
+            text-align: right;
+            border-radius: 4px;
+            padding: 4px 8px;
+            height: 32px;
+        }
+        .submitted-input {
+            background-color: #e9ecef !important;
+            color: #6c757d !important;
+            border-color: #dee2e6 !important;
+            cursor: not-allowed;
+        }
+        .total-display-card {
+            background-color: #f8f9fa;
+            border-top: 2px solid #ddd;
+            padding: 12px 15px;
+            font-weight: bold;
+        }
+        .cursor-pointer {
+            cursor: pointer;
+        }
+        .card-header[aria-expanded="false"] [data-lucide="chevron-down"] {
+            transform: rotate(-90deg);
+        }
     </style>
 @endpush
 @section('content')
@@ -221,61 +262,100 @@
         </div>
     </div>
 
-    {{-- Today's Dues Lists --}}
+    {{-- Today's Dues Lists (2-Column Layout) --}}
     <div class="row">
+        <!-- Loan Installments Section -->
         <div class="col-lg-6 grid-margin stretch-card">
-            <div class="card">
-                <div class="card-header bg-danger text-white">
-                    <h6 class="card-title mb-0">{{ __('messages.loan_installments_due_today') }} <span class="badge bg-light text-danger ms-1">{{ $loanInstallmentsDueToday->count() }}</span></h6>
-                </div>
-                <div class="card-body p-0">
-                    <div class="table-responsive">
-                        <table class="table table-sm table-striped mb-0">
-                            <thead><tr><th>{{ __('messages.member') }}</th><th class="text-end">{{ __('messages.due_amount') }}</th><th>Action</th></tr></thead>
-                            <tbody>
-                            @forelse($loanInstallmentsDueToday as $loan)
-                                <tr>
-                                    <td>
-                                        <a href="{{ route('members.show', $loan->member->id) }}">{{ Str::limit($loan->member->name, 20) }}</a>
-                                        <br><small class="text-muted">{{ $loan->account_no }}</small>
-                                    </td>
-                                    <td class="text-end text-danger fw-bold">{{ number_format($loan->installment_amount) }}</td>
-                                    <td><a href="{{ route('loan-accounts.show',$loan->id) }}" class="btn btn-primary btn-xs">{{ __('messages.collect') }}</a></td>
-                                </tr>
-                            @empty
-                                <tr><td colspan="3" class="text-center p-3 text-muted">{{ __('messages.no_dues_today') }}</td></tr>
-                            @endforelse
-                            </tbody>
-                        </table>
+            <div class="card border-0 shadow-sm">
+                <div class="card-header bg-danger text-white d-flex justify-content-between align-items-center cursor-pointer" 
+                     data-bs-toggle="collapse" data-bs-target="#loanCollapse" aria-expanded="true">
+                    <h6 class="mb-0">{{ __('messages.loan_installments_due_today') }}</h6>
+                    <div>
+                        <span class="badge bg-white text-danger me-2">{{ $loanInstallmentsDueToday->count() }}</span>
+                        <i class="link-icon ms-1" data-lucide="chevron-down"></i>
                     </div>
+                </div>
+                <div class="collapse show" id="loanCollapse">
+                    <div class="card-body p-0">
+                        <div id="loan-due-list">
+                        @forelse($loanInstallmentsDueToday as $loan)
+                            <div class="due-list-item d-flex justify-content-between align-items-center" id="loan-item-{{ $loan->id }}">
+                                <div>
+                                    <h6 class="mb-0 fw-bold">{{ $loan->member->name }}</h6>
+                                    <small class="text-muted">{{ $loan->account_no }}</small>
+                                </div>
+                                <div class="collection-input-group">
+                                    <input type="number" 
+                                           class="form-control form-control-sm collection-input loan-input" 
+                                           placeholder="{{ round($loan->installment_amount) }}" 
+                                           data-id="{{ $loan->id }}"
+                                           data-type="loan"
+                                           value="{{ round($loan->installment_amount) }}">
+                                    <button class="btn btn-success btn-xs btn-submit-ajax d-none" 
+                                            onclick="submitCollection(this, 'loan', {{ $loan->id }})">
+                                        <i class="link-icon" data-lucide="check"></i> {{ __('messages.submit') ?? 'জমা দিন' }}
+                                    </button>
+                                </div>
+                            </div>
+                        @empty
+                            <div class="p-4 text-center text-muted">{{ __('messages.no_dues_today') }}</div>
+                        @endforelse
+                    </div>
+                    <div class="total-display-card d-flex justify-content-between align-items-center">
+                        <span>{{ __('messages.total_collection_today') }}</span>
+                        <span id="loan-total-display" class="text-primary">{{ number_format($todayInstallments) }}</span>
+                    </div>
+                </div>
                 </div>
             </div>
         </div>
+
+        <!-- Savings Due Section -->
         <div class="col-lg-6 grid-margin stretch-card">
-            <div class="card">
-                <div class="card-header bg-success text-white">
-                    <h6 class="card-title mb-0">{{ __('messages.savings_due_today') }} <span class="badge bg-light text-success ms-1">{{ $savingsDueToday->count() }}</span></h6>
-                </div>
-                <div class="card-body p-0">
-                    <div class="table-responsive">
-                        <table class="table table-sm table-striped mb-0">
-                            <thead><tr><th>{{ __('messages.member') }}</th><th>{{ __('messages.scheme') }}</th><th>Action</th></tr></thead>
-                            <tbody>
-                            @forelse($savingsDueToday as $saving)
-                                <tr>
-                                    <td>
-                                        <a href="{{ route('members.show', $saving->member->id) }}">{{ Str::limit($saving->member->name, 20) }}</a>
-                                        <br><small class="text-muted">{{ $saving->account_no }}</small>
-                                    </td>
-                                    <td>{{ $saving->scheme_type }}</td>
-                                    <td><a href="{{ route('savings-accounts.show', $saving->id) }}" class="btn btn-primary btn-xs">{{ __('messages.collect') }}</a></td>
-                                </tr>
-                            @empty
-                                <tr><td colspan="3" class="text-center p-3 text-muted">{{ __('messages.no_dues_today') }}</td></tr>
-                            @endforelse
-                            </tbody>
-                        </table>
+            <div class="card border-0 shadow-sm">
+                <div class="card-header bg-success text-white d-flex justify-content-between align-items-center cursor-pointer"
+                     data-bs-toggle="collapse" data-bs-target="#savingsCollapse" aria-expanded="true">
+                    <h6 class="mb-0">{{ __('messages.savings_due_today') }}</h6>
+                    <div>
+                        <span class="badge bg-white text-success me-2">{{ $savingsDueToday->count() }}</span>
+                        <i class="link-icon ms-1" data-lucide="chevron-down"></i>
                     </div>
+                </div>
+                <div class="collapse show" id="savingsCollapse">
+                    <div class="card-body p-0">
+                        <div id="savings-due-list">
+                        @forelse($savingsDueToday as $saving)
+                            <div class="due-list-item d-flex justify-content-between align-items-center" id="savings-item-{{ $saving->id }}">
+                                <div>
+                                    <h6 class="mb-0 fw-bold">{{ $saving->member->name }}</h6>
+                                    <small class="text-muted">{{ $saving->account_no }} - {{ $saving->scheme_type }}</small>
+                                </div>
+                                <div class="collection-input-group">
+                                    @php
+                                        // Default savings amount prediction could be added here
+                                        $placeholder = 0; 
+                                        if($saving->scheme_type == 'Daily') $placeholder = 10; // Example
+                                    @endphp
+                                    <input type="number" 
+                                           class="form-control form-control-sm collection-input savings-input" 
+                                           placeholder="Amount" 
+                                           data-id="{{ $saving->id }}"
+                                           data-type="savings">
+                                    <button class="btn btn-success btn-xs btn-submit-ajax d-none" 
+                                            onclick="submitCollection(this, 'savings', {{ $saving->id }})">
+                                        {{ __('messages.submit') ?? 'জমা দিন' }}
+                                    </button>
+                                </div>
+                            </div>
+                        @empty
+                            <div class="p-4 text-center text-muted">{{ __('messages.no_dues_today') }}</div>
+                        @endforelse
+                    </div>
+                    <div class="total-display-card d-flex justify-content-between align-items-center">
+                        <span>{{ __('messages.total_collection_today') }}</span>
+                        <span id="savings-total-display" class="text-success">{{ number_format($todaySavings) }}</span>
+                    </div>
+                </div>
                 </div>
             </div>
         </div>
@@ -284,3 +364,117 @@
     {{-- Top Defaulters (এই কার্ডটি এখন ঐচ্ছিক, কারণ উপরের তালিকায় বকেয়া দেখা যাচ্ছে) --}}
     {{-- <div class="row"> ... Top 5 Defaulters card ... </div> --}}
 @endsection
+
+@push('custom-scripts')
+    <script>
+        $(document).ready(function() {
+            // Initialize icons
+            if (typeof lucide !== 'undefined') {
+                lucide.createIcons();
+            }
+
+            // Show submit button on input focus
+            $(document).on('focus', '.collection-input', function() {
+                if (!$(this).hasClass('submitted-input')) {
+                    $(this).closest('.collection-input-group').find('.btn-submit-ajax').removeClass('d-none');
+                    
+                    // Set cursor to the end
+                    const val = $(this).val();
+                    $(this).val('').val(val);
+                }
+            });
+
+            // Handle input change (optional: could auto-calculate)
+
+            // Feather icons initialization might be needed if they are dynamically added, 
+            // but here they are static in the loop.
+        });
+
+        function submitCollection(btn, type, id) {
+            const $btn = $(btn);
+            const $item = $btn.closest('.due-list-item');
+            const $input = $item.find('.collection-input');
+            const amount = $input.val();
+            const originalBtnHtml = $btn.html();
+
+            if (!amount || amount <= 0) {
+                Swal.fire('Error', 'Please enter a valid amount', 'error');
+                return;
+            }
+
+            // Disable UI
+            $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span>');
+            $input.prop('readonly', true);
+
+            const url = type === 'loan' ? "{{ route('loan-installments.store') }}" : "{{ route('savings-collections.store') }}";
+            const data = {
+                _token: "{{ csrf_token() }}",
+                account_id: "{{ $defaultCashAccountId }}",
+                [type === 'loan' ? 'loan_account_id' : 'savings_account_id']: id,
+                [type === 'loan' ? 'paid_amount' : 'amount']: amount,
+                [type === 'loan' ? 'payment_date' : 'collection_date']: "{{ date('Y-m-d') }}"
+            };
+
+            $.ajax({
+                url: url,
+                method: 'POST',
+                data: data,
+                success: function(response) {
+                    // Success State
+                    $input.addClass('submitted-input');
+                    $btn.addClass('d-none');
+                    
+                    // Update Totals
+                    updateSessionTotal(type, amount);
+
+                    // Toast success
+                    Swal.fire({
+                        toast: true,
+                        position: 'top-end',
+                        icon: 'success',
+                        title: 'Collection successful',
+                        showConfirmButton: false,
+                        timer: 2000
+                    });
+                },
+                error: function(xhr) {
+                    // Re-enable on error
+                    $btn.prop('disabled', false).html(originalBtnHtml);
+                    $input.prop('readonly', false);
+                    
+                    let errorMsg = 'Something went wrong';
+                    if (xhr.status === 422 && xhr.responseJSON.errors) {
+                        errorMsg = Object.values(xhr.responseJSON.errors)[0][0];
+                    } else if (xhr.responseJSON && xhr.responseJSON.message) {
+                        errorMsg = xhr.responseJSON.message;
+                    }
+                    Swal.fire('Error', errorMsg, 'error');
+                }
+            });
+        }
+
+        function updateSessionTotal(type, amount) {
+            const displayId = type === 'loan' ? '#loan-total-display' : '#savings-total-display';
+            const $display = $(displayId);
+            
+            let currentTotal = parseFloat($display.text().replace(/,/g, '')) || 0;
+            let newTotal = currentTotal + parseFloat(amount);
+            
+            $display.text(newTotal.toLocaleString());
+
+            // Also update the main summary card if present
+            // Looking at the top of field_worker.blade.php:
+            // Loans: h3.text-primary.mb-0
+            // Savings: h3.text-success.mb-0
+            const perfSelector = type === 'loan' ? '.text-primary.mb-0' : '.text-success.mb-0';
+            const $perfDisplay = $(perfSelector).filter(function() {
+                return !$(this).parents('.card-body p-0').length; // Avoid footer display
+            }).first();
+            
+            if ($perfDisplay.length) {
+                let currentPerf = parseFloat($perfDisplay.text().replace(/,/g, '')) || 0;
+                $perfDisplay.text((currentPerf + parseFloat(amount)).toLocaleString());
+            }
+        }
+    </script>
+@endpush

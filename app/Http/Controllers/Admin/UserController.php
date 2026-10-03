@@ -3,8 +3,8 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
-use App\Models\User;
 use App\Models\Area;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -15,6 +15,7 @@ class UserController extends Controller
     public function index()
     {
         $users = User::with('roles', 'area')->latest()->paginate(10);
+
         return view('admin.users.index', compact('users'));
     }
 
@@ -22,6 +23,7 @@ class UserController extends Controller
     {
         $roles = Role::all();
         $areas = Area::where('is_active', true)->get();
+
         return view('admin.users.create', compact('roles', 'areas'));
     }
 
@@ -29,7 +31,7 @@ class UserController extends Controller
     {
         $request->validate([
             'name' => 'required|string|max:255',
-            'email' => 'required|string|email|max:255|unique:users',
+            'email' => 'nullable|string|email|max:255|unique:users',
             'password' => 'required|string|min:8|confirmed',
             'role' => 'required|string|exists:roles,name',
             'areas' => 'nullable|required_if:role,Field Worker|array',
@@ -37,12 +39,14 @@ class UserController extends Controller
             'phone' => 'nullable|string|max:20|unique:users,phone',
             'nid_no' => 'nullable|string|max:20|unique:users,nid_no',
             'joining_date' => 'nullable|date',
+            'status' => 'nullable|string|in:active,inactive,terminated',
             'address' => 'nullable|string',
+            'salary' => 'nullable|numeric|min:0',
             'photo' => 'nullable|image|max:2048',
             'documents.*' => 'nullable|file|max:2048',
         ]);
 
-        DB::transaction(function() use ($request) {
+        DB::transaction(function () use ($request) {
             $user = User::create([
                 'name' => $request->name,
                 'email' => $request->email,
@@ -51,6 +55,8 @@ class UserController extends Controller
                 'nid_no' => $request->nid_no,
                 'joining_date' => $request->joining_date,
                 'address' => $request->address,
+                'status' => $request->status ?? 'active',
+                'salary' => $request->salary ?? 0,
             ]);
 
             $user->assignRole($request->role);
@@ -74,6 +80,7 @@ class UserController extends Controller
     {
         $roles = Role::all();
         $areas = Area::where('is_active', true)->get();
+
         return view('admin.users.edit', compact('user', 'roles', 'areas'));
     }
 
@@ -81,21 +88,23 @@ class UserController extends Controller
     {
         $request->validate([
             'name' => 'required|string|max:255',
-            'email' => 'required|string|email|max:255|unique:users,email,' . $user->id,
+            'email' => 'nullable|string|email|max:255|unique:users,email,'.$user->id,
             'password' => 'nullable|string|min:8|confirmed',
             'role' => 'required|string|exists:roles,name',
-            'areas' => 'nullable|required_if:role,Field Worker|array',
+            'areas' => 'nullable|array',
             'areas.*' => 'exists:areas,id',
-            'phone' => 'nullable|string|max:20|unique:users,phone,' . $user->id,
-            'nid_no' => 'nullable|string|max:20|unique:users,nid_no,' . $user->id,
+            'phone' => 'nullable|string|max:20|unique:users,phone,'.$user->id,
+            'nid_no' => 'nullable|string|max:20|unique:users,nid_no,'.$user->id,
             'joining_date' => 'nullable|date',
+            'status' => 'nullable|string|in:active,inactive,terminated',
             'address' => 'nullable|string',
+            'salary' => 'nullable|numeric|min:0',
             'photo' => 'nullable|image|max:2048',
             'documents.*' => 'nullable|file|max:2048',
         ]);
 
-        DB::transaction(function() use ($request, $user) {
-            $data = $request->only(['name', 'email', 'phone', 'nid_no', 'joining_date', 'address']);
+        DB::transaction(function () use ($request, $user) {
+            $data = $request->only(['name', 'email', 'phone', 'nid_no', 'joining_date', 'address', 'status', 'salary']);
 
             if ($request->filled('password')) {
                 $data['password'] = Hash::make($request->password);
@@ -131,12 +140,12 @@ class UserController extends Controller
             return redirect()->route('admin.users.index')->with('error', 'You cannot delete yourself.');
         }
 
-        foreach ($user->salaries as $salary)
-        {
+        foreach ($user->salaries as $salary) {
             $salary->transactions()->delete();
             $salary->delete();
         }
         $user->delete();
+
         return redirect()->route('admin.users.index')->with('success', 'User deleted successfully.');
     }
 }

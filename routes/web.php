@@ -4,6 +4,8 @@ use App\Http\Controllers\Admin\AccountController;
 use App\Http\Controllers\Admin\AccountTransferController;
 use App\Http\Controllers\Admin\ExpenseCategoryController;
 use App\Http\Controllers\Admin\ExpenseController;
+use App\Http\Controllers\Admin\IncomeCategoryController;
+use App\Http\Controllers\Admin\IncomeController;
 use App\Http\Controllers\Admin\SalaryController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\ApiController;
@@ -23,7 +25,9 @@ use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\LanguageController;
 use App\Http\Controllers\Admin\AreaController;
+use App\Http\Controllers\Admin\ActivityLogController;
 use App\Http\Controllers\Admin\CapitalInvestmentController;
+use App\Http\Controllers\MemberImportController;
 
 // भविष्याে অন্যান্য কন্ট্রোলার এখানে যোগ করুন
 // use App\Http\Controllers\MemberController;
@@ -41,7 +45,7 @@ use App\Http\Controllers\Admin\CapitalInvestmentController;
 // --- পাবলিক বা গেস্ট রুট (লগইন ছাড়াই অ্যাক্সেসযোগ্য) ---
 // এই রুটগুলো লগইন সুরক্ষার বাইরে থাকবে।
 Route::post('/language-switch', [LanguageController::class, 'switchLang'])->name('language.switch');
-require __DIR__.'/auth.php'; // লগইন, রেজিস্ট্রেশন, পাসওয়ার্ড রিসেট ইত্যাদি রুট
+require __DIR__ . '/auth.php'; // লগইন, রেজিস্ট্রেশন, পাসওয়ার্ড রিসেট ইত্যাদি রুট
 
 // --- লগইন-সুরক্ষিত রুটসমূহ ---
 // এই গ্রুপের ভেতরের সকল রুটের জন্য ব্যবহারকারীকে অবশ্যই লগইন করা থাকতে হবে।
@@ -67,11 +71,13 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::resource('areas', AreaController::class);
 
         // भविष्याে অ্যাডমিনের অন্যান্য রুট এখানে যোগ হবে (যেমন: ব্যবহারকারী ব্যবস্থাপনা)
-         Route::resource('users', UserController::class);
+        Route::resource('users', UserController::class);
 
         // --- Expense Management Routes (নতুন যোগ করা হলো) ---
         Route::resource('expense-categories', ExpenseCategoryController::class);
         Route::resource('expenses', ExpenseController::class);
+        Route::resource('income-categories', IncomeCategoryController::class);
+        Route::resource('incomes', IncomeController::class);
 
         Route::delete('/savings-withdrawals/{savingsWithdrawal}', [SavingsWithdrawalController::class, 'destroy'])->name('savings_withdrawals.destroy');
         Route::get('/reports/financial-summary', [ReportController::class, 'financialSummary'])->name('reports.financial_summary');
@@ -86,11 +92,26 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::post('/translations', [TranslationController::class, 'update'])->name('translations.update');
         Route::post('/translations/add', [TranslationController::class, 'store'])->name('translations.store');
 
-        Route::get('/capital-investments', [CapitalInvestmentController::class, 'index'])->name('capital_investments.index');
-        Route::post('/capital-investments', [CapitalInvestmentController::class, 'store'])->name('capital_investments.store');
+        //Route::get('/capital-investments', [CapitalInvestmentController::class, 'index'])->name('capital_investments.index');
+        //Route::post('/capital-investments', [CapitalInvestmentController::class, 'store'])->name('capital_investments.store');
         Route::get('/reports/area-wise', [ReportController::class, 'areaWiseReport'])->name('reports.area_wise');
 
         Route::get('/reports/journal-ledger', [ReportController::class, 'journalLedger'])->name('reports.journal_ledger');
+
+        Route::resource('capital-investments', CapitalInvestmentController::class)->except(['show']);
+
+        Route::post('/savings-accounts/{savingsAccount}/withdraw-final', [SavingsWithdrawalController::class, 'storeFinal'])->name('savings.withdraw.final');
+        // Partial Withdrawal
+        Route::post('/savings-accounts/{savingsAccount}/withdraw-partial', [SavingsWithdrawalController::class, 'storePartial'])->name('savings.withdraw.partial');
+        Route::get('/reports/cashbook', [ReportController::class, 'cashbook'])->name('reports.cashbook');
+        Route::get('/reports/daily-cashbook', [ReportController::class, 'dailyCashbook'])->name('reports.daily_cashbook');
+        Route::get('/reports/field-officer-wise', [ReportController::class, 'fieldOfficerWiseReport'])->name('reports.field_officer_wise');
+        Route::get('/reports/field-officer/loans/print', [ReportController::class, 'printFieldOfficerLoans'])->name('reports.field_officer.loans.print');
+        Route::get('/reports/field-officer/savings/print', [ReportController::class, 'printFieldOfficerSavings'])->name('reports.field_officer.savings.print');
+
+        // Activity Logs
+        Route::get('/activity-logs', [ActivityLogController::class, 'index'])->name('activity_logs.index');
+        Route::get('/activity-logs/{activity}', [ActivityLogController::class, 'show'])->name('activity_logs.show');
     });
 
 
@@ -103,59 +124,70 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     // --- অ্যাডমিন এবং মাঠকর্মী উভয়ের জন্য সাধারণ রুট ---
     // भविष्याে সদস্য, সঞ্চয়, ঋণ ইত্যাদি ব্যবস্থাপনার রুটগুলো এখানে যোগ করা যেতে পারে
-     Route::middleware(['role:Admin|Field Worker'])->group(function () {
-         Route::get('/members/create-with-account', [MemberController::class, 'createWithAccount'])->name('members.create_with_account');
-         Route::post('/members/store-with-account', [MemberController::class, 'storeWithAccount'])->name('members.store_with_account');
+    Route::middleware(['role:Admin|Field Worker'])->group(function () {
+        Route::get('/members/create-with-account', [MemberController::class, 'createWithAccount'])->name('members.create_with_account');
+        Route::get('/members/search', [MemberController::class, 'search'])->name('members.search');
+        Route::post('/members/store-with-account', [MemberController::class, 'storeWithAccount'])->name('members.store_with_account');
+        Route::get('/members/import', [MemberImportController::class, 'showImportForm'])->name('members.import');
+        Route::post('/members/import', [MemberImportController::class, 'import'])->name('members.import.store');
+        Route::post('/members/import/savings', [MemberImportController::class, 'importSavings'])->name('members.import.savings');
+        Route::post('/members/import/loans', [MemberImportController::class, 'importLoans'])->name('members.import.loans');
 
 
-         Route::resource('members', MemberController::class);
-         Route::resource('members.savings-accounts', SavingsAccountController::class)->shallow();
+        Route::post('/members/bulk-destroy', [MemberController::class, 'bulkDestroy'])->name('members.bulk_destroy');
+        Route::patch('/members/{member}/update-status', [MemberController::class, 'updateStatus'])->name('members.update_status');
+        Route::resource('members', MemberController::class);
+        Route::resource('members.savings-accounts', SavingsAccountController::class)->shallow();
 
-         Route::get('new-savings',[SavingsAccountController::class,'newSavings'])->name('savings.new_savings');
-         Route::post('new-savings',[SavingsAccountController::class,'newSavingsStore'])->name('savings.store');
+        Route::get('new-savings', [SavingsAccountController::class, 'newSavings'])->name('savings.new_savings');
+        Route::post('new-savings', [SavingsAccountController::class, 'newSavingsStore'])->name('savings.store');
 
-         // সঞ্চয় আদায় ব্যবস্থাপনা (নতুন যোগ করা হলো)
-         Route::resource('savings-collections', SavingsCollectionController::class);
+        // সঞ্চয় আদায় ব্যবস্থাপনা (নতুন যোগ করা হলো)
+        Route::resource('savings-collections', SavingsCollectionController::class);
 
-         // ঋণ অ্যাকাউন্ট ব্যবস্থাপনা (নতুন যোগ করা হলো)
-         Route::resource('members.loan-accounts', LoanAccountController::class)->shallow();
+        // ঋণ অ্যাকাউন্ট ব্যবস্থাপনা (নতুন যোগ করা হলো)
+        Route::resource('members.loan-accounts', LoanAccountController::class)->shallow();
 
-         Route::get('new-loan',[LoanAccountController::class,'newLoanAccount'])->name('loan.new');
-         Route::post('new-loan',[LoanAccountController::class,'storeLoanAccount'])->name('loan.new.store');
+        Route::get('new-loan', [LoanAccountController::class, 'newLoanAccount'])->name('loan.new');
+        Route::post('new-loan', [LoanAccountController::class, 'storeLoanAccount'])->name('loan.new.store');
 
-         // ঋণ কিস্তি আদায় ব্যবস্থাপনা (নতুন যোগ করা হলো)
-         Route::resource('loan-installments', LoanInstallmentController::class);
+        // ঋণ কিস্তি আদায় ব্যবস্থাপনা (নতুন যোগ করা হলো)
+        Route::resource('loan-installments', LoanInstallmentController::class);
 
-         Route::get('/daily-worklist', [WorklistController::class, 'today'])->name('worklist.today');
+        Route::get('/daily-worklist', [WorklistController::class, 'today'])->name('worklist.today');
 
-         Route::get('/reports/daily-collection', [ReportController::class, 'dailyCollectionForm'])->name('reports.daily_collection.form');
-         Route::post('/reports/daily-collection', [ReportController::class, 'generateDailyCollectionReport'])->name('reports.daily_collection.generate');
+        Route::get('/reports/daily-collection', [ReportController::class, 'dailyCollectionForm'])->name('reports.daily_collection.form');
+        Route::post('/reports/daily-collection', [ReportController::class, 'generateDailyCollectionReport'])->name('reports.daily_collection.generate');
 
-         // Outstanding Loan Report (নতুন যোগ করা হলো)
-         Route::get('/reports/outstanding-loan', [ReportController::class, 'outstandingLoanReport'])->name('reports.outstanding_loan');
+        // Outstanding Loan Report (নতুন যোগ করা হলো)
+        Route::get('/reports/outstanding-loan', [ReportController::class, 'outstandingLoanReport'])->name('reports.outstanding_loan');
 
-         Route::post('/members/{member}/statement', [ReportController::class, 'generateMemberStatement'])->name('reports.member_statement');
+        // Irregular Loan Payments (নতুন যোগ করা হলো)
+        Route::get('/reports/irregular-loan-payments', [ReportController::class, 'irregularLoanPayments'])->name('reports.irregular_loan_payments');
 
-         Route::post('/savings-accounts/{savingsAccount}/withdraw', [SavingsWithdrawalController::class, 'store'])->name('savings.withdraw');
+        Route::get('/members/{member}/statement', [ReportController::class, 'generateMemberStatement'])->name('reports.member_statement');
 
-         Route::get('/savings-withdrawals', [SavingsWithdrawalController::class, 'index'])->name('savings_withdrawals.index');
-         Route::get('/savings-accounts/{savingsAccount}', [SavingsAccountController::class, 'show'])->name('savings_accounts.show');
+        Route::post('/savings-accounts/{savingsAccount}/withdraw', [SavingsWithdrawalController::class, 'store'])->name('savings.withdraw');
 
-         Route::get('/reports/daily-transaction-log', [ReportController::class, 'dailyTransactionLog'])->name('reports.daily_transaction_log');
+        Route::get('/savings-withdrawals', [SavingsWithdrawalController::class, 'index'])->name('savings_withdrawals.index');
+        Route::get('/savings-accounts/{savingsAccount}', [SavingsAccountController::class, 'show'])->name('savings_accounts.show');
 
-         Route::get('/savings-accounts', [SavingsAccountController::class, 'index'])->name('savings_accounts.index');
-         Route::get('/loan-accounts', [LoanAccountController::class, 'index'])->name('loan_accounts.index');
-         Route::get('/loan-accounts/{loanAccount}', [LoanAccountController::class, 'show'])->name('loan_accounts.show');
+        Route::get('/reports/daily-transaction-log', [ReportController::class, 'dailyTransactionLog'])->name('reports.daily_transaction_log');
 
-         Route::get('/collections/create', [CollectionController::class, 'create'])->name('collections.create');
-         Route::post('/collections/store', [CollectionController::class, 'store'])->name('collections.store');
-// সদস্যের অ্যাকাউন্ট তথ্য আনার জন্য একটি API রুট
-         Route::get('/api/members/{member}/accounts', [CollectionController::class, 'getMemberAccounts'])->name('api.member.accounts');
+        Route::get('/savings-accounts', [SavingsAccountController::class, 'index'])->name('savings_accounts.index');
+        Route::get('/loan-accounts', [LoanAccountController::class, 'index'])->name('loan_accounts.index');
+        Route::get('/loan-accounts/{loanAccount}', [LoanAccountController::class, 'show'])->name('loan_accounts.show');
 
-         Route::get('/my-collections', [MyCollectionController::class, 'index'])->name('my_collections.index');
+        Route::get('/collections/create', [CollectionController::class, 'create'])->name('collections.create');
+        Route::post('/collections/store', [CollectionController::class, 'store'])->name('collections.store');
+        Route::get('/collections/{collection}/edit', [CollectionController::class, 'edit'])->name('collections.edit');
+        Route::put('/collections/{collection}', [CollectionController::class, 'update'])->name('collections.update');
+        Route::delete('/collections/{collection}', [CollectionController::class, 'destroy'])->name('collections.destroy');
+        // সদস্যের অ্যাকাউন্ট তথ্য আনার জন্য একটি API রুট
+        Route::get('/api/members/{member}/accounts', [CollectionController::class, 'getMemberAccounts'])->name('api.member.accounts');
 
-     });
-
+        Route::get('/my-collections', [MyCollectionController::class, 'index'])->name('my_collections.index');
+    });
 });
 Route::middleware(['auth'])->prefix('api')->name('api.')->group(function () {
     // ... আপনার বিদ্যমান /members/{member}/accounts রুট ...
@@ -165,6 +197,5 @@ Route::middleware(['auth'])->prefix('api')->name('api.')->group(function () {
     Route::get('/collections/savings', [MyCollectionController::class, 'getSavingsData'])->name('collections.savings.data');
     Route::get('/collections/loans', [MyCollectionController::class, 'getLoanData'])->name('collections.loans.data');
 
-    Route::get('/collections/today-savings', [CollectionController::class, 'getTodaySavings'])->name('collections.today_savings');
-    Route::get('/collections/today-loans', [CollectionController::class, 'getTodayLoans'])->name('collections.today_loans');
+    Route::get('/collections/today', [CollectionController::class, 'getTodayCollections'])->name('collections.today');
 });
